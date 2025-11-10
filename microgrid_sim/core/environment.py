@@ -44,8 +44,7 @@ Model Predictive Control of Microgrids. Springer.
 """
 
 from __future__ import annotations
-
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Dict, List, Optional, Any, Protocol
 
 try:
     import pandas as pd
@@ -57,29 +56,47 @@ from microgrid_sim.components.base import (BaseComponent, BaseGenerator,
 from microgrid_sim.components.generators import GridIntertie
 from microgrid_sim.system import MicrogridSystem
 
+# Define the controller protocol (interface)
 class EmsController(Protocol):
     """
-    Defines the interface for any controller we want to pass to the environment.
-    The notebook's RuleBasedEMS already matches this.
+    Interface (Protocol) for any controller that can be passed to the Environment.
+
+    This ensures that any "plug-and-play" controller, whether it's
+    rule-based or an RL agent, has the required .decide() method.
     """
-    def decide(self, hour: int, soc: float, exogenous: Dict[str, Any]) -> Dict[str, Any]:
+    def decide(self,
+               hour: int,
+               soc: float,
+               exogenous: Dict[str, Any]
+               ) -> Dict[str, Any]:
         ...
 
 class MicrogridEnv:
     """
     Time-based orchestrator for microgrid simulation.
 
-    Parameters
-    ----------
-    simulation_steps : int
-        Number of time steps per run (e.g., 24 for a day if hourly).
+    This environment runs on two timescales:
+    1.  Simulation Timestep (e.g., 1 minute): The physics step,
+        defined by `sim_dt_minutes`.
+    2.  Control Interval (e.g., 60 minutes): The decision-making step,
+        defined by `control_interval_minutes`.
+
+    The `run()` method automatically handles this two-timescale loop.
+    The `step()` method provides a low-level, single-step API.
     """
 
     def __init__(self,
                  simulation_hours: int,
                  control_interval_minutes: int,
                  sim_dt_minutes: int):
-
+        """
+        Args:
+            simulation_hours (int): The total number of hours to simulate (e.g., 24, 72).
+            control_interval_minutes (int): How often the controller
+                makes a decision (e.g., 60).
+            sim_dt_minutes (int): The resolution of the physics
+                simulation (e.g., 1).
+        """
         self.simulation_hours = int(simulation_hours)
         self.control_dt = int(control_interval_minutes)
         self.sim_dt = int(sim_dt_minutes)
@@ -88,7 +105,9 @@ class MicrogridEnv:
             raise ValueError("Control interval must be a multiple of simulation timestep.")
 
         self.steps_per_control_interval = self.control_dt // self.sim_dt
-        self.total_simulation_steps = self.simulation_hours * self.steps_per_control_interval
+
+        # Total simulation steps = (total hours * 60 min/hr) / (sim_dt_min/step)
+        self.total_simulation_steps = (self.simulation_hours * 60) // self.sim_dt
 
         self.current_step = 0
 
@@ -100,24 +119,23 @@ class MicrogridEnv:
         self._system: Optional[MicrogridSystem] = None
         self.history: Dict[str, List[float]] = {}
 
-    # ---------------------------------------------------------------------
-    # Component management
-    # ---------------------------------------------------------------------
+    # --- Component management ---
+
     def add_component(self, component: BaseComponent, is_grid: bool = False):
         """
-        Register a component with the environment.
+        Registers a new component (like a PV array, Battery, or Load)
+        with the environment.
 
-        Args
-        ----
-        component : BaseComponent
-        is_grid   : bool
-            Mark True if this is the GridIntertie (slack). Only one allowed.
+        Args:
+            component (BaseComponent): The component instance to add.
+            is_grid (bool): True if this component is the main GridIntertie
+                (slack bus). Only one is allowed.
         """
         if is_grid:
             if not isinstance(component, GridIntertie):
                 raise TypeError("Grid component must be a GridIntertie.")
             if self.grid_component is not None:
-                raise ValueError("Grid component already added.")
+                raise ValueError("A grid component has already been added.")
             self.grid_component = component
 
         if isinstance(component, BaseGenerator):
@@ -130,8 +148,11 @@ class MicrogridEnv:
         self._wire_system()
 
     def _wire_system(self):
-        """(Re)build the MicrogridSystem from current registries."""
-        # Ensure the grid is not duplicated in generators list for the system's own accounting
+        """
+        (Re)builds the internal MicrogridSystem from the current
+        component registries. This is called automatically by add_component.
+        """
+        # Ensure the grid is not duplicated in the generators list
         gens = [g for g in self.generators if not isinstance(g, GridIntertie)]
         self._system = MicrogridSystem(
             generators=gens,
@@ -140,27 +161,22 @@ class MicrogridEnv:
             grid=self.grid_component,
         )
 
-    # ---------------------------------------------------------------------
-    # Logging helpers
-    # ---------------------------------------------------------------------
-    def _initialize_history(self):
-        """Set up historical logs for every component and aggregate KPI fields."""
-        self.history = {}
+    # --- Logging helpers ---
 
-        # Use an ordered listing for deterministic column order
-        comp_order: List[BaseComponent] = []
+    def _initialize_history(self):
+        """Sets up the history dictionary to log data for every step."""
+        self.history = {}
         comp_order: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
         if self.grid_component and self.grid_component not in comp_order:
             comp_order.append(self.grid_component)
 
-        # Per-component slots
         for comp in comp_order:
             self.history[f"{comp.name}_power"] = []
             self.history[f"{comp.name}_cost"] = []
             if isinstance(comp, BaseStorage):
                 self.history[f"{comp.name}_soc"] = []
 
-        # Aggregate slots
+        # Aggregates
         for key in ["gen_total_kw", "load_total_kw", "storage_total_kw", "grid_slack_kw",
                     "net_power_unbalanced", "unmet_load_kw", "curtailed_gen_kw",
                     "downtime", "total_cashflow", "t"]:
@@ -168,6 +184,7 @@ class MicrogridEnv:
         self.current_step = 0
 
     def _log_step(self, summary: Dict[str, float]):
+        """Appends the results of a single step to the history."""
         comp_order: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
         if self.grid_component and self.grid_component not in comp_order:
             comp_order.append(self.grid_component)
@@ -181,7 +198,7 @@ class MicrogridEnv:
         self.history["gen_total_kw"].append(summary["gen_kw"])
         self.history["load_total_kw"].append(summary["load_kw"])
         self.history["storage_total_kw"].append(summary["storage_kw"])
-        self.history["grid_slack_kw"].append(summary["grid_kw"]) # This is grid_kw
+        self.history["grid_slack_kw"].append(summary["grid_kw"])
         self.history["net_power_unbalanced"].append(
             summary["gen_kw"] + summary["storage_kw"] + summary["load_kw"]
         )
@@ -191,54 +208,57 @@ class MicrogridEnv:
         self.history["total_cashflow"].append(summary["total_cost"])
         self.history["t"].append(self.current_step)
 
-    # ---------------------------------------------------------------------
-    # Simulation loop
-    # ---------------------------------------------------------------------
+    # --- Simulation Loop ---
+
     def reset(self):
-        """Reset all components and (re)initialize logs."""
+        """Resets all components and clears the simulation history."""
         self.current_step = 0
         for comp in self.generators + self.storage + self.loads:
             comp.reset()
         if self.grid_component is not None:
             self.grid_component.reset()
-
-        # Ensure system is wired (in case add_component occurred before reset)
         self._wire_system()
         self._initialize_history()
 
-    def step(self, actions: Optional[Dict[str, object]] = None,
-             exogenous: Optional[Dict[str, object]] = None):
+    def step(self, actions: Dict[str, object], exogenous: Dict[str, object]):
         """
-        Advance the simulation by one time step.
+        Runs one single simulation step (e.g., 1 minute).
+        This is the low-level, Gym-style API.
 
-        Parameters
-        ----------
-        actions   : dict[name -> action], optional
-            Controller actions for this step.
-        exogenous : dict[name -> payload], optional
-            External data (e.g., irradiance, wind, loads) for this step.
+        Args:
+            actions (dict): The action dictionary from the controller.
+            exogenous (dict): The external data for this step.
         """
         if self._system is None:
-            raise RuntimeError("System not wired. Add components before stepping.")
+            raise RuntimeError("System not wired. Call .add_component() first.")
 
-        # Delegate physical balance to MicrogridSystem
-        summary = self._system.step(actions=actions, exogenous=exogenous)
+        # Handle special string-based actions like "disconnect"
+        if self.grid_component:
+            grid_action = actions.get(self.grid_component.name)
+            if grid_action == "disconnect":
+                self.grid_component.disconnect()
+            elif grid_action == "connect":
+                self.grid_component.connect()
 
-        # Log and advance time
+        # Step the physical system
+        summary = self._system.step(t=self.current_step, actions=actions, exogenous=exogenous)
+
+        # Log results
         self._log_step(summary)
         self.current_step += 1
 
     def run(self, controller: EmsController, exogenous_list: List[Dict[str, Any]]):
         """
-        Runs the full simulation.
+        Runs the full simulation using a high-level controller.
 
-        Parameters:
-        -----------
-        controller : EmsController
-            An object with a .decide(hour, soc, exog) method.
-        exogenous_list : list
-            The *high-fidelity, per-simulation-step* list of exogenous data.
-            (e.g., length 1440 for a 24-hour, 1-min-step sim).
+        This method automatically manages the two-timescale loop, calling
+        the controller's `.decide()` method once per control interval
+        and the environment's `.step()` method once per simulation step.
+
+        Args:
+            controller (EmsController): An object with a
+                `.decide(hour, soc, exog)` method.
+            exogenous_list (list): The *high-fidelity, per-simulation-step* list of exogenous data (e.g., length 1440).
         """
         if len(exogenous_list) != self.total_simulation_steps:
             raise ValueError(f"Exogenous list length ({len(exogenous_list)}) does not "
@@ -252,54 +272,45 @@ class MicrogridEnv:
 
             # Check if we are at the start of a new control interval
             if k % self.steps_per_control_interval == 0:
-                hour = k // self.steps_per_control_interval
+
+                # --- THIS IS THE FIX ---
+                # Get total hours *of the simulation*
+                total_hour = k // self.steps_per_control_interval
+                # Get the hour *of the day* (0-23)
+                hour_of_day = total_hour % 24
+                # --- END FIX ---
 
                 # Get battery SOC (assumes one battery named "bat")
-                soc = 0.5
+                soc = 0.5 # default
                 for s in self.storage:
                     if getattr(s, "name", "") == "bat":
                         soc = float(s.get_soc())
 
                 # Controller makes a decision
                 current_ems_action = controller.decide(
-                    hour=hour,
+                    hour=hour_of_day, # <-- Pass the correct hour (0-23)
                     soc=soc,
-                    exogenous=exogenous_list[k] # Give it the data for this instant
+                    exogenous=exogenous_list[k]
                 )
 
-            # --- DYNAMIC GRID CONTROL (example for islanding) ---
-            # This logic is now handled in the notebook's loop
-            # But we must pass any grid actions from the controller
-            if self.grid_component and "grid" in current_ems_action:
-                 grid_ctrl = current_ems_action.get("grid")
-                 if grid_ctrl == "disconnect":
-                     self.grid_component.disconnect()
-                 elif grid_ctrl == "connect":
-                     self.grid_component.connect()
-
-            # Run one simulation step using the held action
+            # Run one simulation step (1 minute)
             self.step(
                 actions=current_ems_action,
                 exogenous=exogenous_list[k]
             )
 
-    # ---------------------------------------------------------------------
-    # Results
-    # ---------------------------------------------------------------------
+    # --- Results ---
+
     def get_results(self, as_dataframe: bool = True):
         """
-        Return the simulation history.
-        If some component histories are shorter/longer, we pad with NaN.
-        This preserves all available data and lets pandas handle alignment.
+        Returns the simulation history.
 
-        Parameters
-        ----------
-        as_dataframe : bool, default True
-            If True, return a pandas DataFrame; otherwise, return the raw dict.
+        Args:
+            as_dataframe (bool): If True, returns a pandas DataFrame.
+                If False, returns the raw dictionary of lists.
 
-        Returns
-        -------
-        pandas.DataFrame | dict
+        Returns:
+            pd.DataFrame | dict: The simulation log.
         """
         if not self.history:
             return pd.DataFrame() if (as_dataframe and pd is not None) else {}
@@ -307,15 +318,16 @@ class MicrogridEnv:
         L = int(self.current_step)
 
         if as_dataframe and pd is not None:
+            # Align all history lists to the same length (L)
             aligned = {}
             for k, v in self.history.items():
                 s = pd.Series(v, dtype=float)
-                s = s.iloc[:L]            # clip anything longer than executed steps
-                s = s.reindex(range(L))   # pad gaps with NaN
+                s = s.iloc[:L]
+                s = s.reindex(range(L))
                 aligned[k] = s
             df = pd.DataFrame(aligned)
-            df.index.name = "step (sim_dt)"
+            df.index.name = "step (sim_dt)" # Index is now per-minute
             return df
 
-        # fallback: just return dict clipped to L (no NaN padding for plain lists)
+        # Fallback: return dict clipped to L
         return {k: list(v[:L]) for k, v in self.history.items()}
