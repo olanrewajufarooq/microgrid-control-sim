@@ -2,7 +2,7 @@
 microgrid_sim/utils/plotting.py
 
 Standard plotting utilities with:
-- Time-based x-axis (hours or days)
+- Time-based x-axis (hours or days with sub-hour ticks)
 - Fixed, high-contrast palette
 - Consistent colors per series across ALL subplots
 - Standard subplots for Generation, Consumption, Grid, SOC, etc.
@@ -27,6 +27,7 @@ from typing import List, Dict, Optional, Iterable, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker  # <-- Import the ticker module
 
 
 # --------------------------
@@ -101,8 +102,7 @@ def _infer_components(df_cols) -> Tuple[List[str], bool]:
 def _set_xaxis_time(axs: List[plt.Axes], x_axis_data: np.ndarray, x_label: str, total_hours: float):
     """
     Helper to set the new time-based x-axis.
-    x_axis_data is ALWAYS in hours. This function formats the
-    ticks and labels to show "Hours" or "Days" as appropriate.
+    Uses Major/Minor ticks for multi-day plots.
     """
     if not x_axis_data.any():
         return
@@ -111,30 +111,48 @@ def _set_xaxis_time(axs: List[plt.Axes], x_axis_data: np.ndarray, x_label: str, 
     for ax in axs:
         ax.set_xlim(x_axis_data[0], x_axis_data[-1])
 
-    # Dynamic ticks
-    if total_hours <= 48: # 0-2 days, show hours
-        tick_step = max(1, int(total_hours / 12))
+    # Get the bottom axis (the only one that needs labels)
+    bottom_ax = axs[-1]
+
+    if total_hours <= 48: # 0-2 days, show simple hours
+        tick_step = max(1, int(total_hours / 12)) * 2 # e.g., 2, 4, 6, 8
         ticks = np.arange(0, total_hours + 1, tick_step)
-        tick_labels = [f"{t:.0f}" for t in ticks]
-        xlabel_final = x_label # "Time (Hours)"
-    else: # > 2 days, show days
-        total_days = total_hours / 24.0
-        # Show a tick every 1, 2, or 7 days
-        if total_days <= 14:
-            day_step = 1 # Tick every day
-        elif total_days <= 60:
-            day_step = 7 # Tick every week
-        else:
-            day_step = 30 # Tick approx every month
 
-        ticks_in_days = np.arange(0, total_days + 1, day_step)
-        ticks = ticks_in_days * 24.0 # Convert back to hours for position
-        tick_labels = [f"{d:.0f}" for d in ticks_in_days] # Labels are in days
-        xlabel_final = x_label # "Time (Days)"
+        bottom_ax.set_xticks(ticks)
+        bottom_ax.set_xticklabels([f"{t:.0f}h" for t in ticks]) # e.g., "12h"
+        bottom_ax.set_xlabel("Time (Hours)")
 
-    axs[-1].set_xticks(ticks)
-    axs[-1].set_xticklabels(tick_labels)
-    axs[-1].set_xlabel(xlabel_final)
+    else: # > 2 days, show days with hour sub-ticks
+
+        # --- Set Major Ticks (Days) ---
+        # Set a major tick every 24 hours (at 0, 24, 48, ...)
+        bottom_ax.xaxis.set_major_locator(ticker.MultipleLocator(24))
+
+        # Format the major tick labels as "1", "2", "3"
+        def day_formatter(hour, pos):
+            # The tick at 0h is Day 1, 24h is Day 2, etc.
+            return f"{int(hour / 24) + 1}"
+
+        bottom_ax.xaxis.set_major_formatter(ticker.FuncFormatter(day_formatter))
+
+        # --- Set Minor Ticks (Hours) ---
+        # Set a minor tick every 6 hours (at 6, 12, 18, 30, 36, 42, ...)
+        bottom_ax.xaxis.set_minor_locator(ticker.MultipleLocator(6))
+
+        # Format the minor tick labels as "6h", "12h", "18h"
+        def hour_formatter(hour, pos):
+            hour_of_day = hour % 24
+            if hour_of_day == 0:
+                return "" # Don't label the major ticks (0h, 24h, etc.)
+            return f"{int(hour_of_day)}h" # Label as "6h", "12h", "18h"
+
+        bottom_ax.xaxis.set_minor_formatter(ticker.FuncFormatter(hour_formatter))
+
+        # Adjust label appearance
+        bottom_ax.tick_params(axis='x', which='major', labelsize=10, length=6, width=1.2)
+        bottom_ax.tick_params(axis='x', which='minor', labelsize=8, labelcolor='#555', length=3)
+
+        bottom_ax.set_xlabel(x_label) # "Time (Days)"
 
 def _ensure_dir(path: str):
     """Ensures a directory exists."""
@@ -249,7 +267,7 @@ def _plot_generation(ax, df, comps: List[str], has_grid: bool, color_map: Dict[s
     ax.set_title("Generation Power (kW) — positive portions only")
     ax.set_ylabel("kW")
     if any_plotted:
-        ax.legend(ncol=4, loc='best')
+        ax.legend(ncol=4, loc='upper left')
 
 def _plot_consumption(ax, df, comps: List[str], has_grid: bool, color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots all negative power (loads, battery charge, grid import)."""
@@ -280,7 +298,7 @@ def _plot_consumption(ax, df, comps: List[str], has_grid: bool, color_map: Dict[
     ax.set_title("Consumption Power (kW) — negative portions & grid imports")
     ax.set_ylabel("kW")
     if any_plotted:
-        ax.legend(ncol=4, loc='best')
+        ax.legend(ncol=4, loc='upper left')
 
 def _plot_net_vs_grid(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots net power vs. grid actual power."""
@@ -300,7 +318,7 @@ def _plot_net_vs_grid(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray
 
     ax.set_title("Net vs Grid (kW)")
     ax.set_ylabel("kW")
-    ax.legend(ncol=4, loc='best')
+    ax.legend(ncol=4, loc='upper left')
 
 def _plot_socs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots SoC for all storage components."""
@@ -313,7 +331,7 @@ def _plot_socs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
     ax.set_title("State of Charge (SOC)")
     ax.set_ylabel("SOC (0–1)")
     if plotted:
-        ax.legend(ncol=4, loc='best')
+        ax.legend(ncol=4, loc='upper left')
 
 def _plot_costs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots per-step cash flow by component."""
@@ -328,7 +346,7 @@ def _plot_costs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
     ax.set_title("Per-Step Cash Flow (NEG=expense, POS=revenue)")
     ax.set_ylabel("$ / step")
     if plotted:
-        ax.legend(ncol=4, loc='best')
+        ax.legend(ncol=4, loc='upper left')
 
 def _plot_cumulative_cash(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots the cumulative sum of total cash flow."""
@@ -356,7 +374,7 @@ def _plot_unmet_curtailed(ax, df, color_map: Dict[str, str], x_axis_data: np.nda
     ax.set_title("Security of Supply")
     ax.set_ylabel("kW (and 0/1)")
     if plotted:
-        ax.legend(ncol=3, loc='best')
+        ax.legend(ncol=3, loc='upper left')
 
 def _plot_actions(ax, actions: List[Dict[str, float]], color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots the actions taken by the controller."""
@@ -380,13 +398,14 @@ def _plot_actions(ax, actions: List[Dict[str, float]], color_map: Dict[str, str]
                  series.append(np.nan) # Handle 'connect'/'disconnect'
 
         if not all(np.isnan(series)):
-            ax.plot(x_axis_data, series, label=k, color=color_map.get(k, "#000000"))
+            # Use step plot for setpoints
+            ax.step(x_axis_data, series, where='post', label=k, color=color_map.get(k, "#000000"))
             plotted = True
 
     ax.set_title("Actions by Component (Numeric Setpoints)")
     ax.set_ylabel("Setpoint")
     if plotted:
-        ax.legend(ncol=4, loc='best')
+        ax.legend(ncol=4, loc='upper left')
 
 
 # --------------------------
@@ -428,7 +447,7 @@ def plot_simulation(
     if style == "conference":
         _apply_conference_style()
 
-    # --- **FIXED** Time Axis Calculation ---
+    # --- Time Axis Calculation ---
     n_steps = len(df)
     total_hours = (n_steps * sim_dt_minutes) / 60.0
 
@@ -442,6 +461,14 @@ def plot_simulation(
     # ---
 
     comps, has_grid = _infer_components(df.columns)
+
+    # We need the action list to be the same length as the dataframe
+    if actions is not None:
+        if len(actions) > n_steps:
+            actions = actions[:n_steps]
+        elif len(actions) < n_steps:
+            actions = actions + [{}] * (n_steps - len(actions))
+
     color_map = _build_color_map(df, actions)
 
     nrows = 7 + (1 if actions is not None else 0)
