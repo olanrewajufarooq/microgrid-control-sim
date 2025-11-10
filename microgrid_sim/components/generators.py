@@ -414,29 +414,41 @@ class GridIntertie(BaseGenerator):
                                  None if export_limit_kw is None else float(export_limit_kw))
         self._connected = True
 
-    def connect(self): self._connected = True
-    def disconnect(self): self._connected = False
-    def is_connected(self) -> bool: return bool(self._connected)
+    def connect(self):
+        self._connected = True
+    def disconnect(self):
+        self._connected = False
+    def is_connected(self) -> bool:
+        return bool(self._connected)
 
     @property
-    def dt_hours(self): return self.params.time_step_minutes / 60.0
+    def dt_hours(self):
+        return self.params.time_step_minutes / 60.0
 
     def _clamp_by_limits(self, desired_p: float) -> float:
         if desired_p >= 0:
-            if self.params.import_limit_kw is None: return desired_p
+            if self.params.import_limit_kw is None:
+                return desired_p
             return min(desired_p, self.params.import_limit_kw)
         else:
-            if self.params.export_limit_kw is None: return desired_p
+            if self.params.export_limit_kw is None:
+                return desired_p
             return max(desired_p, -self.params.export_limit_kw)
 
     def step(self, t: int, **kwargs):
         if not self._connected:
-            self._power_output = 0; self._cost = 0; return
+            self._power_output = 0
+            self._cost = 0
+            return
         a = kwargs.get("action", 0.0)
-        try: desired_p = float(a)
-        except Exception: desired_p = 0.0
+        try:
+            desired_p = float(a)
+        except Exception:
+            desired_p = 0.0
         p = self._clamp_by_limits(desired_p)
         self._power_output = p
         e = abs(p) * self.dt_hours
-        if p >= 0: self._cost = - self.params.price_import_per_kwh * e
-        else:      self._cost = + self.params.price_export_per_kwh * e
+        if p >= 0:
+            self._cost = - self.params.price_import_per_kwh * e
+        else:
+            self._cost = + self.params.price_export_per_kwh * e

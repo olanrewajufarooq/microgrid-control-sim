@@ -52,6 +52,7 @@ class MicrogridSystem:
 
     # ---------------------------------------------------------
     def step(self,
+             t: int = 0,
              actions: Dict[str, Dict] | None = None,
              exogenous: Dict[str, Dict] | None = None
              ) -> Dict[str, float]:
@@ -74,31 +75,63 @@ class MicrogridSystem:
 
         # step each component
         totals = dict(gen=0.0, load=0.0, stor=0.0, grid=0.0, cost=0.0)
-        all_comps: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
-        if self.grid:
-            all_comps.append(self.grid)
 
-        for comp in all_comps:
+        all_comps: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
+        non_grid_comps: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
+
+        for comp in non_grid_comps:
             act = actions.get(comp.name)
             exo = exogenous.get(comp.name)
-            comp.step(0, action=act, exogenous=exo)
+            comp.step(t, action=act, exogenous=exo)
             p = comp.get_power()
             c = comp.get_cost()
 
-            if isinstance(comp, BaseGenerator) and not isinstance(comp, GridIntertie):
+            if isinstance(comp, BaseGenerator):
                 totals["gen"] += p
             elif isinstance(comp, BaseStorage):
                 totals["stor"] += p
             elif isinstance(comp, BaseLoad):
                 totals["load"] += p
-            elif isinstance(comp, GridIntertie):
-                totals["grid"] += p
             totals["cost"] += c
 
         # bus balance
-        imbalance = totals["gen"] + totals["stor"] + totals["grid"] + totals["load"]
+        net_power_unbalanced = totals["gen"] + totals["stor"] + totals["load"]
 
         # classify residuals
+        p_grid_controlled = 0.0
+        if self.grid:
+            grid_action_payload = actions.get(self.grid.name)
+            # Handle both float and dict actions
+            if isinstance(grid_action_payload, dict):
+                p_grid_controlled = float(grid_action_payload.get("power_setpoint", 0.0))
+            elif grid_action_payload is not None:
+                try:
+                    p_grid_controlled = float(grid_action_payload)
+                except Exception:
+                    p_grid_controlled = 0.0
+
+        remaining_imbalance = net_power_unbalanced + p_grid_controlled
+        p_slack_required = -remaining_imbalance
+
+        p_grid_total_request = p_grid_controlled + p_slack_required
+
+        if self.grid:
+            grid_exo = exogenous.get(self.grid.name)
+
+            # Step the grid using the *TOTAL calculated power* as its action
+            self.grid.step(t, action=p_grid_total_request, exogenous=grid_exo)
+
+            p_grid_actual = self.grid.get_power()
+            c_grid = self.grid.get_cost()
+
+            totals["grid"] = p_grid_actual
+            totals["cost"] += c_grid
+        else:
+            # No grid (islanded)
+            totals["grid"] = 0.0
+
+        imbalance = net_power_unbalanced + totals["grid"]
+
         unmet = curtailed = 0.0
         if imbalance < 0:
             unmet = -imbalance
@@ -115,7 +148,7 @@ class MicrogridSystem:
             curtailed_kw=curtailed,
             total_cost=totals["cost"],
         )
-    
+
     def power_summary(self) -> Dict[str, float]:
         """Return zeroed summary (for logging headers)."""
         return dict(
