@@ -30,95 +30,69 @@ References
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Dict, Any
-
-
-@dataclass
-class EMSRuleParams:
-    """
-    Tunable parameters for the Rule-Based EMS.
-    """
-    # Battery policy
-    charge_kw: float = -6.0            # negative = charging
-    discharge_kw: float = 6.0          # positive = discharging
-    soc_charge_band: float = 0.90      # charge if SOC below this during charge window
-    soc_discharge_band: float = 0.20   # discharge if SOC above this during discharge window
-
-    # Time-of-day windows (inclusive hour indices in [0..23])
-    charge_hours_start: int = 11
-    charge_hours_end: int   = 15
-    discharge_hours_start: int = 18
-    discharge_hours_end: int   = 21
-
-    # Diesel policy (night support)
-    diesel_night_on: bool = True
-    diesel_night_start: int = 20
-    diesel_night_end: int   = 6        # cyclic range: [20..23] U [0..6)
-    diesel_night_kw: float  = 4.0
+from typing import Dict, Any, List, Tuple
+from .rules import BaseRule
 
 
 class RuleBasedEMS:
     """
-    Simple, fully deterministic EMS for baseline benchmarking.
+    A "master" EMS controller that is composed of a list of
+    individual "Rule" strategies.
 
-    Usage
-    -----
-    ems = RuleBasedEMS()
-    actions = ems.decide(hour=14, soc=0.42, exogenous={"house": {"load_kw": 1.2}})
+    This class's `decide` method implements the conflict resolution
+    logic to merge all rule decisions into a final action dictionary.
     """
-
-    def __init__(self, params: EMSRuleParams | None = None,
-                 battery_name: str = "bat",
-                 diesel_name: str = "diesel"):
-        self.p = params or EMSRuleParams()
-        self.battery_name = str(battery_name)
-        self.diesel_name = str(diesel_name)
-
-    @staticmethod
-    def _in_range_cyclic(h: int, start: int, end: int) -> bool:
-        """Check if hour h ∈ [start..end] with wrap-around (e.g., 20..6)."""
-        if start <= end:
-            return start <= h <= end
-        return h >= start or h <= end
-
-    def decide(self, hour: int, soc: float, exogenous: Dict[str, Dict[str, float]] | None = None) -> Dict[str, Any]:
+    def __init__(self, rules: List[BaseRule]):
         """
-        Decide component actions for this step.
-
-        Parameters
-        ----------
-        hour : int
-            Hour-of-day [0..23].
-        soc : float
-            Battery state-of-charge [0..1].
-        exogenous : dict, optional
-            Current exogenous signals (not used in this simple EMS,
-            kept for future extensions and API symmetry).
-
-        Returns
-        -------
-        actions : dict
-            Mapping suitable for MicrogridEnv.step(actions=...)
+        Args:
+            rules (List[BaseRule]): An array of "Rule" objects that will
+                be executed to build the final action.
         """
-        p = self.p
-        actions: Dict[str, Any] = {}
+        self.rules = rules
 
-        # Diesel heuristic (night support window)
-        diesel_on = p.diesel_night_on and self._in_range_cyclic(hour, p.diesel_night_start, p.diesel_night_end)
-        actions[self.diesel_name] = {
-            "on": bool(diesel_on),
-            "power_setpoint": float(p.diesel_night_kw if diesel_on else 0.0),
-        }
+    def decide(self,
+               hour: int,
+               soc: float,
+               exogenous: Dict[str, Dict[str, float]] | None = None
+               ) -> Dict[str, Any]:
+        """
+        Generates a final action dictionary by merging all individual rules.
 
-        # Battery heuristic: charge window vs discharge window with SOC bands
-        bat_sp = 0.0
-        if p.charge_hours_start <= hour <= p.charge_hours_end and soc < p.soc_charge_band:
-            bat_sp = p.charge_kw  # charge (negative)
-        elif p.discharge_hours_start <= hour <= p.discharge_hours_end and soc > p.soc_discharge_band:
-            bat_sp = p.discharge_kw  # discharge (positive)
-        else:
-            bat_sp = 0.0
+        This method correctly resolves conflicts, especially for the grid:
+        Priority: "disconnect" > float (setpoint) > "connect"
 
-        actions[self.battery_name] = {"set_state": "ON", "power_setpoint": float(bat_sp)}
-        return actions
+        For all other components, the last rule in the list wins.
+        """
+        final_actions: Dict[str, Any] = {}
+
+        # Helper to store the winning grid action
+        # We use a tuple: (priority, value)
+        # 3 = disconnect, 2 = setpoint, 1 = connect, 0 = None
+        grid_action: Tuple[int, Any] = (0, None)
+
+        for rule in self.rules:
+            # Get the decision from the individual rule
+            action_piece = rule.decide(hour, soc, exogenous)
+
+            for key, value in action_piece.items():
+                if key == "grid":
+                    # Priority 1 (High): "disconnect"
+                    if value == "disconnect":
+                        if grid_action[0] < 3:
+                            grid_action = (3, "disconnect")
+                    # Priority 2: float (Setpoint)
+                    elif isinstance(value, float):
+                        if grid_action[0] < 2:
+                            grid_action = (2, value)
+                    # Priority 3 (Low): "connect"
+                    elif value == "connect":
+                        if grid_action[0] < 1:
+                            grid_action = (1, "connect")
+                else:
+                    # For all other components, the last rule wins
+                    final_actions[key] = value
+        # After the loop, add the winning grid action if one was set
+        if grid_action[1] is not None:
+            final_actions["grid"] = grid_action[1]
+
+        return final_actions

@@ -45,7 +45,7 @@ Model Predictive Control of Microgrids. Springer.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional, Protocol
 
 try:
     import pandas as pd
@@ -57,6 +57,13 @@ from microgrid_sim.components.base import (BaseComponent, BaseGenerator,
 from microgrid_sim.components.generators import GridIntertie
 from microgrid_sim.system import MicrogridSystem
 
+class EmsController(Protocol):
+    """
+    Defines the interface for any controller we want to pass to the environment.
+    The notebook's RuleBasedEMS already matches this.
+    """
+    def decide(self, hour: int, soc: float, exogenous: Dict[str, Any]) -> Dict[str, Any]:
+        ...
 
 class MicrogridEnv:
     """
@@ -68,8 +75,21 @@ class MicrogridEnv:
         Number of time steps per run (e.g., 24 for a day if hourly).
     """
 
-    def __init__(self, simulation_steps: int):
-        self.simulation_steps = int(simulation_steps)
+    def __init__(self,
+                 simulation_hours: int,
+                 control_interval_minutes: int,
+                 sim_dt_minutes: int):
+
+        self.simulation_hours = int(simulation_hours)
+        self.control_dt = int(control_interval_minutes)
+        self.sim_dt = int(sim_dt_minutes)
+
+        if self.control_dt % self.sim_dt != 0:
+            raise ValueError("Control interval must be a multiple of simulation timestep.")
+
+        self.steps_per_control_interval = self.control_dt // self.sim_dt
+        self.total_simulation_steps = self.simulation_hours * self.steps_per_control_interval
+
         self.current_step = 0
 
         # Component registries
@@ -77,11 +97,7 @@ class MicrogridEnv:
         self.storage: List[BaseStorage] = []
         self.loads: List[BaseLoad] = []
         self.grid_component: Optional[GridIntertie] = None
-
-        # System model (wired after components are added)
         self._system: Optional[MicrogridSystem] = None
-
-        # Logged data
         self.history: Dict[str, List[float]] = {}
 
     # ---------------------------------------------------------------------
@@ -99,22 +115,18 @@ class MicrogridEnv:
         """
         if is_grid:
             if not isinstance(component, GridIntertie):
-                raise TypeError("Grid component must be an instance of GridIntertie.")
+                raise TypeError("Grid component must be a GridIntertie.")
             if self.grid_component is not None:
-                raise ValueError("A grid component has already been added.")
+                raise ValueError("Grid component already added.")
             self.grid_component = component
 
         if isinstance(component, BaseGenerator):
-            # If it's the grid, it will also pass this isinstance; safe to include.
             self.generators.append(component)
         elif isinstance(component, BaseStorage):
             self.storage.append(component)
         elif isinstance(component, BaseLoad):
             self.loads.append(component)
-        else:
-            raise TypeError(f"Unsupported component type for: {getattr(component, 'name', component)}")
 
-        # Re-wire the system whenever components change
         self._wire_system()
 
     def _wire_system(self):
@@ -137,10 +149,8 @@ class MicrogridEnv:
 
         # Use an ordered listing for deterministic column order
         comp_order: List[BaseComponent] = []
-        comp_order.extend([g for g in self.generators])
-        comp_order.extend(self.storage)
-        comp_order.extend(self.loads)
-        if self.grid_component is not None and self.grid_component not in comp_order:
+        comp_order: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
+        if self.grid_component and self.grid_component not in comp_order:
             comp_order.append(self.grid_component)
 
         # Per-component slots
@@ -151,43 +161,27 @@ class MicrogridEnv:
                 self.history[f"{comp.name}_soc"] = []
 
         # Aggregate slots
-        self.history["gen_total_kw"] = []
-        self.history["load_total_kw"] = []
-        self.history["storage_total_kw"] = []
-        self.history["grid_slack_kw"] = []
-        self.history["net_power_unbalanced"] = []  # sum of non-grid powers
-        self.history["unmet_load_kw"] = []
-        self.history["curtailed_gen_kw"] = []
-        self.history["downtime"] = []              # 1 if unmet > 0 else 0
-        self.history["total_cashflow"] = []
-
-        # Time index
-        self.history["t"] = []
-
+        for key in ["gen_total_kw", "load_total_kw", "storage_total_kw", "grid_slack_kw",
+                    "net_power_unbalanced", "unmet_load_kw", "curtailed_gen_kw",
+                    "downtime", "total_cashflow", "t"]:
+            self.history[key] = []
         self.current_step = 0
 
     def _log_step(self, summary: Dict[str, float]):
-        """Append the current step’s readings to history."""
-        # Per-component logs
-        comp_order: List[BaseComponent] = []
-        comp_order.extend([g for g in self.generators])
-        comp_order.extend(self.storage)
-        comp_order.extend(self.loads)
-        if self.grid_component is not None and self.grid_component not in comp_order:
+        comp_order: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
+        if self.grid_component and self.grid_component not in comp_order:
             comp_order.append(self.grid_component)
 
         for comp in comp_order:
             self.history[f"{comp.name}_power"].append(comp.get_power())
             self.history[f"{comp.name}_cost"].append(comp.get_cost())
             if isinstance(comp, BaseStorage):
-                # type: ignore[attr-defined]
                 self.history[f"{comp.name}_soc"].append(comp.get_soc())
 
-        # Aggregate logs
         self.history["gen_total_kw"].append(summary["gen_kw"])
         self.history["load_total_kw"].append(summary["load_kw"])
         self.history["storage_total_kw"].append(summary["storage_kw"])
-        self.history["grid_slack_kw"].append(summary["grid_kw"])
+        self.history["grid_slack_kw"].append(summary["grid_kw"]) # This is grid_kw
         self.history["net_power_unbalanced"].append(
             summary["gen_kw"] + summary["storage_kw"] + summary["load_kw"]
         )
@@ -195,8 +189,6 @@ class MicrogridEnv:
         self.history["curtailed_gen_kw"].append(summary["curtailed_kw"])
         self.history["downtime"].append(1.0 if summary["unmet_kw"] > 0.0 else 0.0)
         self.history["total_cashflow"].append(summary["total_cost"])
-
-        # Time index
         self.history["t"].append(self.current_step)
 
     # ---------------------------------------------------------------------
@@ -228,8 +220,6 @@ class MicrogridEnv:
         """
         if self._system is None:
             raise RuntimeError("System not wired. Add components before stepping.")
-        if self.current_step >= self.simulation_steps:
-            return  # finished
 
         # Delegate physical balance to MicrogridSystem
         summary = self._system.step(actions=actions, exogenous=exogenous)
@@ -238,32 +228,60 @@ class MicrogridEnv:
         self._log_step(summary)
         self.current_step += 1
 
-    def run(self,
-            actions_list: Optional[List[Dict[str, object]]] = None,
-            exogenous_list: Optional[List[Dict[str, object]]] = None):
+    def run(self, controller: EmsController, exogenous_list: List[Dict[str, Any]]):
         """
-        Run the full simulation horizon.
+        Runs the full simulation.
 
-        Parameters
-        ----------
-        actions_list   : list of dict, length == simulation_steps (optional)
-        exogenous_list : list of dict, length == simulation_steps (optional)
+        Parameters:
+        -----------
+        controller : EmsController
+            An object with a .decide(hour, soc, exog) method.
+        exogenous_list : list
+            The *high-fidelity, per-simulation-step* list of exogenous data.
+            (e.g., length 1440 for a 24-hour, 1-min-step sim).
         """
+        if len(exogenous_list) != self.total_simulation_steps:
+            raise ValueError(f"Exogenous list length ({len(exogenous_list)}) does not "
+                             f"match total simulation steps ({self.total_simulation_steps}).")
+
         self.reset()
 
-        # Fallback to empty dicts if lists not provided
-        if actions_list is None:
-            actions_list = [{} for _ in range(self.simulation_steps)]
-        if exogenous_list is None:
-            exogenous_list = [{} for _ in range(self.simulation_steps)]
+        current_ems_action = {}
 
-        if len(actions_list) != self.simulation_steps:
-            raise ValueError("actions_list length must match simulation_steps.")
-        if len(exogenous_list) != self.simulation_steps:
-            raise ValueError("exogenous_list length must match simulation_steps.")
+        for k in range(self.total_simulation_steps):
 
-        for t in range(self.simulation_steps):
-            self.step(actions=actions_list[t], exogenous=exogenous_list[t])
+            # Check if we are at the start of a new control interval
+            if k % self.steps_per_control_interval == 0:
+                hour = k // self.steps_per_control_interval
+
+                # Get battery SOC (assumes one battery named "bat")
+                soc = 0.5
+                for s in self.storage:
+                    if getattr(s, "name", "") == "bat":
+                        soc = float(s.get_soc())
+
+                # Controller makes a decision
+                current_ems_action = controller.decide(
+                    hour=hour,
+                    soc=soc,
+                    exogenous=exogenous_list[k] # Give it the data for this instant
+                )
+
+            # --- DYNAMIC GRID CONTROL (example for islanding) ---
+            # This logic is now handled in the notebook's loop
+            # But we must pass any grid actions from the controller
+            if self.grid_component and "grid" in current_ems_action:
+                 grid_ctrl = current_ems_action.get("grid")
+                 if grid_ctrl == "disconnect":
+                     self.grid_component.disconnect()
+                 elif grid_ctrl == "connect":
+                     self.grid_component.connect()
+
+            # Run one simulation step using the held action
+            self.step(
+                actions=current_ems_action,
+                exogenous=exogenous_list[k]
+            )
 
     # ---------------------------------------------------------------------
     # Results
@@ -296,7 +314,7 @@ class MicrogridEnv:
                 s = s.reindex(range(L))   # pad gaps with NaN
                 aligned[k] = s
             df = pd.DataFrame(aligned)
-            df.index.name = "step"
+            df.index.name = "step (sim_dt)"
             return df
 
         # fallback: just return dict clipped to L (no NaN padding for plain lists)

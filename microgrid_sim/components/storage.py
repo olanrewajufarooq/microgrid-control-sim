@@ -23,7 +23,9 @@ Implemented under the sign convention P_batt > 0 (discharge), P_batt < 0 (charge
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
+
+from microgrid_sim.types import BatteryAction
 from .base import BaseStorage
 
 
@@ -123,8 +125,8 @@ class BatteryStorage(BaseStorage):
                 - power_setpoint: float (kW), +discharge / -charge
         """
         # Parse action
-        action = kwargs.get("action", None)
-        set_state: Optional[str] = None
+        action: BatteryAction | float | None = kwargs.get("action", None)
+        set_state: Literal["ON", "OFF"] | None = None
         power_setpoint: float = 0.0
 
         if isinstance(action, dict):

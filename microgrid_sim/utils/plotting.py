@@ -54,15 +54,19 @@ _BASE_PALETTE = [
 
 _COLOR_OVERRIDES = {
     "grid":                 "#000000",  # black (component actual)
-    "grid_import":          "#000000",  # black (negative in consumption plot)
+    "grid_exp":             "#000000",  # black (negative in consumption plot)
+    "grid_required":        "#000000",  # black (negative in consumption plot)
     "grid_slack_kw":        "#7F7F7F",  # gray (slack requirement)
     "pv":                   "#FFBF00",  # yellow
     "wind":                 "#1F77B4",  # blue
     "hydro":                "#17BECF",  # cyan/teal
     "diesel":               "#D62728",  # red
     "house":                "#2CA02C",  # green
-    "factory":              "#8C564B",  # brown
-    "bat":                  "#E377C2",  # magenta
+    "house1":               "#17BECF",  # cyan
+    "house2":               "#FFBF00",  # yellow
+    "house3":               "#1F77B4",  # blue
+    "factory":              "#D62728",  # red
+    "bat":                  "#17BECF",  # cyan
     "total_cashflow":       "#9467BD",  # purple
     "unmet_load_kw":        "#D62728",  # red
     "curtailed_gen_kw":     "#7F7F7F",  # gray

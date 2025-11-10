@@ -1,17 +1,34 @@
 """
 microgrid_sim.control
 
-Control algorithms for the microgrid:
-- Rule-based baseline EMS (Topic 10)
-- (Later) MDP/Q-learning (Topic 15)
-- (Later) POMDP extensions (Topic 16)
-- (Later) Gym-compatible wrappers (Topic 17)
-- (Later) DRL agents (Topic 18)
+Control algorithms for the microgrid.
+This package defines the "brains" of the EMS.
+
+- RuleBasedEMS: A "master" controller that composes a list of "Rules".
+- rules (module): A collection of plug-and-play, single-purpose
+  "Rule" objects (e.g., BatteryRule, GridRule) that define
+  a specific control strategy.
+- (Later) MDP/RL agents, etc.
 """
 
-from .ems_rule import RuleBasedEMS, EMSRuleParams
+from .ems_rule import RuleBasedEMS
+from .rules import (
+    BaseRule,
+    TimeSchedule,
+    SetpointSchedule,
+    BatteryRule,
+    DieselRule,
+    GridRule,
+    RenewableDisconnectRule
+)
 
 __all__ = [
     "RuleBasedEMS",
-    "EMSRuleParams",
+    "BaseRule",
+    "TimeSchedule",
+    "SetpointSchedule",
+    "BatteryRule",
+    "DieselRule",
+    "GridRule",
+    "RenewableDisconnectRule",
 ]

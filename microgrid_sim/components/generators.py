@@ -136,7 +136,6 @@ class WindParams:
     rated_ms: float = 12.0
     cut_out_ms: float = 25.0
 
-
 class WindTurbine(BaseGenerator):
     """
     IEC-style cubic wind turbine model with connect/disconnect.
@@ -266,7 +265,6 @@ class FossilParams:
     shutdown_cost: float = 0.0
     efficiency: float = 0.35  # electrical efficiency (optional)
 
-
 class FossilGenerator(BaseGenerator, GeneratorCostMixin):
     """
     Dispatchable fossil generator.
@@ -387,8 +385,8 @@ class GridParams:
     time_step_minutes: float
     price_import_per_kwh: float
     price_export_per_kwh: float
-    import_limit_kw: Optional[float] = None
-    export_limit_kw: Optional[float] = None
+    import_limit_kw: Optional[float] = None # Default: None = infinity
+    export_limit_kw: Optional[float] = None # Default: None = infinity
 
 
 class GridIntertie(BaseGenerator):
@@ -406,12 +404,14 @@ class GridIntertie(BaseGenerator):
                  price_import_per_kwh: float, price_export_per_kwh: float,
                  import_limit_kw: Optional[float] = None,
                  export_limit_kw: Optional[float] = None):
+
         super().__init__(name)
+
         self.params = GridParams(float(time_step_minutes),
                                  float(price_import_per_kwh),
                                  float(price_export_per_kwh),
-                                 None if import_limit_kw is None else float(import_limit_kw),
-                                 None if export_limit_kw is None else float(export_limit_kw))
+                                 import_limit_kw,
+                                 export_limit_kw)
         self._connected = True
 
     def connect(self):
@@ -425,30 +425,57 @@ class GridIntertie(BaseGenerator):
     def dt_hours(self):
         return self.params.time_step_minutes / 60.0
 
-    def _clamp_by_limits(self, desired_p: float) -> float:
-        if desired_p >= 0:
-            if self.params.import_limit_kw is None:
-                return desired_p
-            return min(desired_p, self.params.import_limit_kw)
-        else:
-            if self.params.export_limit_kw is None:
-                return desired_p
-            return max(desired_p, -self.params.export_limit_kw)
+    def _clamp_by_limits(self,
+                         desired_p: float,
+                         import_limit: Optional[float],
+                         export_limit: Optional[float]) -> float:
+        """
+        Clamps the desired power based on the DYNAMIC limits.
+        'None' is treated as infinity.
+        """
+        if desired_p >= 0:  # Importing
+            if import_limit is None:
+                return desired_p  # No limit
+            return min(desired_p, import_limit)
+        else:  # Exporting
+            if export_limit is None:
+                return desired_p  # No limit
+            return max(desired_p, -export_limit)
 
     def step(self, t: int, **kwargs):
+        """
+        Steps the grid, using dynamic prices and limits from exogenous data.
+        """
         if not self._connected:
             self._power_output = 0
             self._cost = 0
             return
+
+        # Get DYNAMIC parameters from exogenous data
+        exo = kwargs.get("exogenous", {}) or {}
+
+        # Get dynamic prices, falling back to init params if not provided
+        price_import = exo.get("price_import_per_kwh", self.params.price_import_per_kwh)
+        price_export = exo.get("price_export_per_kwh", self.params.price_export_per_kwh)
+
+        # Get dynamic limits, falling back to init params (which default to None)
+        import_limit = exo.get("import_limit_kw", self.params.import_limit_kw)
+        export_limit = exo.get("export_limit_kw", self.params.export_limit_kw)
+
+        # Get action (the power requested by the system)
         a = kwargs.get("action", 0.0)
         try:
             desired_p = float(a)
         except Exception:
             desired_p = 0.0
-        p = self._clamp_by_limits(desired_p)
+
+        # Apply limits and calculate cost
+        p = self._clamp_by_limits(desired_p, import_limit, export_limit)
+
         self._power_output = p
         e = abs(p) * self.dt_hours
-        if p >= 0:
-            self._cost = - self.params.price_import_per_kwh * e
-        else:
-            self._cost = + self.params.price_export_per_kwh * e
+
+        if p >= 0: # Importing
+            self._cost =- price_import * e
+        else: # Exporting
+            self._cost =+ price_export * e
