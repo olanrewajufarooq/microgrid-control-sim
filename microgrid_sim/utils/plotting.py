@@ -5,7 +5,7 @@ Standard plotting utilities with:
 - Fixed, high-contrast palette (first 5 = black, green, red, yellow, blue)
 - Consistent colors per series across ALL subplots in a run
 - Separate Generation vs Consumption panels
-- NEW: "Net vs Grid" subplot (net power before grid & the grid action)
+- "Net vs Grid" subplot (net before grid, grid required (slack), grid component actual)
 - Clear subplot titles
 - Optional saving of conference-quality figures (PNG/PDF, 300 dpi)
   to <base_dir>/<sim_name>/ (combined + individuals)
@@ -53,19 +53,20 @@ _BASE_PALETTE = [
 ]
 
 _COLOR_OVERRIDES = {
-    "grid":              "#000000",  # black
-    "grid_import":       "#000000",  # black (negative in consumption plot)
-    "pv":                "#FFBF00",  # yellow
-    "wind":              "#1F77B4",  # blue
-    "hydro":             "#17BECF",  # cyan/teal
-    "diesel":            "#D62728",  # red
-    "house":             "#2CA02C",  # green
-    "factory":           "#8C564B",  # brown
-    "bat":               "#E377C2",  # magenta
-    "total_cashflow":    "#9467BD",  # purple
-    "unmet_load_kw":     "#D62728",  # red
-    "curtailed_gen_kw":  "#7F7F7F",  # gray
-    "downtime":          "#000000",  # black
+    "grid":                 "#000000",  # black (component actual)
+    "grid_import":          "#000000",  # black (negative in consumption plot)
+    "grid_slack_kw":        "#7F7F7F",  # gray (slack requirement)
+    "pv":                   "#FFBF00",  # yellow
+    "wind":                 "#1F77B4",  # blue
+    "hydro":                "#17BECF",  # cyan/teal
+    "diesel":               "#D62728",  # red
+    "house":                "#2CA02C",  # green
+    "factory":              "#8C564B",  # brown
+    "bat":                  "#E377C2",  # magenta
+    "total_cashflow":       "#9467BD",  # purple
+    "unmet_load_kw":        "#D62728",  # red
+    "curtailed_gen_kw":     "#7F7F7F",  # gray
+    "downtime":             "#000000",  # black
     "net_power_unbalanced": "#2CA02C",  # green (net before grid)
 }
 
@@ -90,8 +91,8 @@ def _infer_components(df_cols) -> Tuple[List[str], bool]:
 
 def _set_xaxis(axs, n_steps: int):
     for ax in axs:
-        ax.set_xlim(0, n_steps - 1)
-    tick_step = max(1, n_steps // 12)
+        ax.set_xlim(0, max(0, n_steps - 1))
+    tick_step = max(1, max(1, n_steps) // 12)
     axs[-1].set_xticks(list(range(0, n_steps, tick_step)))
 
 def _ensure_dir(path: str):
@@ -123,7 +124,8 @@ def _collect_series_names(df, actions: Optional[List[Dict[str, float]]], has_gri
     if has_grid:
         names.add("grid")
         names.add("grid_import")
-    for special in ["total_cashflow", "unmet_load_kw", "curtailed_gen_kw", "downtime", "net_power_unbalanced"]:
+    for special in ["total_cashflow", "unmet_load_kw", "curtailed_gen_kw", "downtime",
+                    "net_power_unbalanced", "grid_slack_kw"]:
         if special in df.columns:
             names.add(special)
     if actions is not None:
@@ -177,8 +179,8 @@ def _plot_generation(ax, df, comps: List[str], has_grid: bool, color_map: Dict[s
     for cname in comps:
         col = f"{cname}_power"
         if col in df.columns:
-            y = np.clip(df[col].values, 0, None)
-            if np.any(y):
+            y = np.clip(df[col].values.astype(float), 0, None)
+            if np.any(np.nan_to_num(y) > 0):
                 ax.plot(x, y, label=cname, color=color_map.get(cname, "#000000"))
                 any_plotted = True
     ax.set_title("Generation Power (kW) — positive portions only")
@@ -192,15 +194,15 @@ def _plot_consumption(ax, df, comps: List[str], has_grid: bool, color_map: Dict[
     for cname in comps:
         col = f"{cname}_power"
         if col in df.columns:
-            y = df[col].values
+            y = df[col].values.astype(float)
             y_neg = np.where(y < 0, y, 0.0)
-            if np.any(y_neg):
+            if np.any(np.nan_to_num(y_neg) < 0):
                 ax.plot(x, y_neg, label=cname, color=color_map.get(cname, "#000000"))
                 any_plotted = True
     if has_grid and "grid_power" in df.columns:
-        g = df["grid_power"].values
+        g = df["grid_power"].values.astype(float)
         grid_import_as_neg = -np.clip(g, 0, None)
-        if np.any(grid_import_as_neg):
+        if np.any(np.nan_to_num(grid_import_as_neg) < 0):
             ax.plot(x, grid_import_as_neg, label="grid_import",
                     color=color_map.get("grid_import", "#000000"))
             any_plotted = True
@@ -211,18 +213,24 @@ def _plot_consumption(ax, df, comps: List[str], has_grid: bool, color_map: Dict[
 
 def _plot_net_vs_grid(ax, df, color_map: Dict[str, str]):
     """
-    NEW Subplot — Net vs Grid:
+    Net vs Grid:
     - net_power_unbalanced: sum of all non-grid components (gen > 0, load/charge < 0)
-    - grid_power: grid action used to balance (import > 0, export < 0)
-    Visual check: ideally these cancel each other except residuals (unmet/curtailment).
+    - grid_slack_kw: what the system asked the grid to do (aggregate slack)  [new, dashed]
+    - grid_power: grid component actual (import > 0, export < 0)
+
+    Visual check: ideally net + grid_actual ~ 0 (modulo unmet/curtail).
     """
     x = np.arange(len(df))
     if "net_power_unbalanced" in df.columns:
         ax.plot(x, df["net_power_unbalanced"], label="net_power_unbalanced",
                 color=color_map.get("net_power_unbalanced", "#2CA02C"))
+    if "grid_slack_kw" in df.columns:
+        ax.plot(x, df["grid_slack_kw"], label="grid_required (slack)",
+                linestyle="--", color=color_map.get("grid_slack_kw", "#7F7F7F"))
     if "grid_power" in df.columns:
-        ax.plot(x, df["grid_power"], label="grid", color=color_map.get("grid", "#000000"))
-    ax.set_title("Net vs Grid (kW) — net before grid & grid action")
+        ax.plot(x, df["grid_power"], label="grid_actual",
+                color=color_map.get("grid", "#000000"))
+    ax.set_title("Net vs Grid (kW)")
     ax.set_ylabel("kW")
     ax.legend(ncol=4)
 
@@ -239,13 +247,20 @@ def _plot_socs(ax, df, color_map: Dict[str, str]):
     if plotted:
         ax.legend(ncol=4)
 
-def _plot_cashflows(ax, df, color_map: Dict[str, str]):
+def _plot_costs(ax, df, color_map: Dict[str, str]):
+    """
+    Per-step cash flow by component (from *_cost columns).
+    Negative = expense, Positive = revenue.
+    """
     x = np.arange(len(df))
-    interesting = [c for c in ["grid", "diesel", "bat"] if f"{c}_cashflow" in df.columns]
+    # Prefer common interesting components if present, else plot any *_cost columns
+    interesting = [c for c in ["grid", "diesel", "bat", "pv", "wind", "factory", "house"]
+                   if f"{c}_cost" in df.columns]
+    cols = [f"{c}_cost" for c in interesting] or [c for c in df.columns if c.endswith("_cost")]
     plotted = False
-    for c in interesting:
-        ax.plot(x, df[f"{c}_cashflow"], label=f"{c}_cashflow",
-                color=color_map.get(c, "#000000"))
+    for col in cols:
+        name = col.replace("_cost", "")
+        ax.plot(x, df[col], label=name, color=color_map.get(name, "#000000"))
         plotted = True
     ax.set_title("Per-Step Cash Flow (NEG=expense, POS=revenue)")
     ax.set_ylabel("$ / step")
@@ -323,7 +338,7 @@ def plot_simulation(
     """
     try:
         import pandas as pd
-        if not isinstance(df, pd.DataFrame):
+        if not hasattr(df, "columns"):
             df = pd.DataFrame(df)
     except Exception:
         pass
@@ -346,7 +361,7 @@ def plot_simulation(
     _plot_consumption(axs[ax_idx], df, comps, has_grid, color_map); ax_idx += 1
     _plot_net_vs_grid(axs[ax_idx], df, color_map); ax_idx += 1
     _plot_socs(axs[ax_idx], df, color_map); ax_idx += 1
-    _plot_cashflows(axs[ax_idx], df, color_map); ax_idx += 1
+    _plot_costs(axs[ax_idx], df, color_map); ax_idx += 1
     _plot_cumulative_cash(axs[ax_idx], df, color_map); ax_idx += 1
     _plot_unmet_curtailed(axs[ax_idx], df, color_map); ax_idx += 1
     if actions is not None:
@@ -385,7 +400,7 @@ def plot_simulation(
         _save_single(lambda ax: _plot_consumption(ax, df, comps, has_grid, color_map), "consumption")
         _save_single(lambda ax: _plot_net_vs_grid(ax, df, color_map), "net_vs_grid")
         _save_single(lambda ax: _plot_socs(ax, df, color_map), "soc")
-        _save_single(lambda ax: _plot_cashflows(ax, df, color_map), "cashflow")
+        _save_single(lambda ax: _plot_costs(ax, df, color_map), "costs")
         _save_single(lambda ax: _plot_cumulative_cash(ax, df, color_map), "cumulative_cash")
         _save_single(lambda ax: _plot_unmet_curtailed(ax, df, color_map), "security")
         if actions is not None:

@@ -305,6 +305,7 @@ class FossilGenerator(BaseGenerator, GeneratorCostMixin):
                                    float(shutdown_cost),
                                    float(efficiency))
         self._on = False
+        self._cost = 0.0
 
     @property
     def dt_hours(self): return self.params.time_step_minutes / 60.0
@@ -312,40 +313,69 @@ class FossilGenerator(BaseGenerator, GeneratorCostMixin):
     def start(self):
         if not self._on:
             self._on = True
-            self._cost += self.startup_cost(self.params.startup_cost)
+            # self._cost += self.startup_cost(self.params.startup_cost)
 
     def shutdown(self):
         if self._on:
             self._on = False
-            self._cost += self.shutdown_cost(self.params.shutdown_cost)
+            # self._cost += self.shutdown_cost(self.params.shutdown_cost)
 
     def emissions(self, energy_kwh: float, kg_per_kwh: float = 0.7) -> float:
         """Approximate CO₂ emissions (kg)."""
         return energy_kwh * kg_per_kwh
 
     def reset(self):
-        super().reset(); self._on = False
+        super().reset();
+        self._on = False
+        self._cost = 0.0
 
     def step(self, t: int, **kwargs):
+        """
+        Expected action patterns:
+        - float: power_setpoint (kW) -> >0 turns ON, <=0 turns OFF
+        - dict : {"on": bool, "power_setpoint": float}
+        Cashflow convention: NEGATIVE = expense, POSITIVE = revenue.
+        """
         a = kwargs.get("action", 0.0)
+
+        # Parse action
         if isinstance(a, dict):
             on_cmd = bool(a.get("on", self._on))
             sp = float(a.get("power_setpoint", 0.0))
         else:
-            sp = float(a); on_cmd = sp > 0
-        prev_on = self._on; self._on = on_cmd
+            sp = float(a)
+            on_cmd = sp > 0.0
 
+        prev_on = self._on
+        self._on = on_cmd
+
+        # Dispatch power
         if not self._on:
-            if prev_on: self._cost += self.shutdown_cost(self.params.shutdown_cost)
-            self._power_output = 0; return
-        if self._on and not prev_on:
-            self._cost += self.startup_cost(self.params.startup_cost)
+            dispatched_kw = 0.0
+        else:
+            # If no setpoint was provided and ON, default to p_min
+            if isinstance(a, dict) and "power_setpoint" not in a:
+                dispatched_kw = max(self.params.p_min_kw, 0.0)
+            else:
+                dispatched_kw = max(self.params.p_min_kw,
+                                    min(self.params.p_max_kw, float(sp)))
 
-        p = max(self.params.p_min_kw, min(self.params.p_max_kw, sp))
-        self._power_output = p
-        energy = p * self.dt_hours
-        self._cost += self.fuel_cost(energy, self.params.fuel_cost_per_kwh)
-        self._cost += self.maintenance_cost(self.dt_hours, self.params.maintenance_cost_per_hour)
+        self._power_output = max(0.0, dispatched_kw)
+
+        # Per-step costs (NEGATIVE = expense)
+        dt_h = self.dt_hours
+        energy_kwh = self._power_output * dt_h
+
+        # Variable & fixed running costs (negative via mixin helpers)
+        fuel_cost     = self.fuel_cost(energy_kwh, self.params.fuel_cost_per_kwh) if self._on else 0.0
+        maint_cost    = self.maintenance_cost(dt_h, self.params.maintenance_cost_per_hour) if self._on else 0.0
+
+        # Start/stop costs this step (based on transition)
+        start_cost    = self.startup_cost(self.params.startup_cost)   if (self._on and not prev_on) else 0.0
+        shutdown_cost = self.shutdown_cost(self.params.shutdown_cost) if (prev_on and not self._on) else 0.0
+
+        # ✅ Per-step cashflow only (no accumulation)
+        self._cost = fuel_cost + maint_cost + start_cost + shutdown_cost
 
 
 # ============================================================

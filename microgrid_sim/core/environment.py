@@ -22,9 +22,9 @@ Per-component:
     "<name>_power", "<name>_cost", and "<name>_soc" (if storage)
 Aggregates:
     "gen_total_kw", "load_total_kw", "storage_total_kw",
-    "grid_power", "net_power_unbalanced",
+    "grid_slack_kw", "net_power_unbalanced",
     "unmet_load_kw", "curtailed_gen_kw", "downtime",
-    "total_cashflow"
+    "total_cashflow", "t"
 
 Usage
 -----
@@ -45,7 +45,7 @@ Model Predictive Control of Microgrids. Springer.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 try:
     import pandas as pd
@@ -154,12 +154,15 @@ class MicrogridEnv:
         self.history["gen_total_kw"] = []
         self.history["load_total_kw"] = []
         self.history["storage_total_kw"] = []
-        self.history["grid_power"] = []
+        self.history["grid_slack_kw"] = []
         self.history["net_power_unbalanced"] = []  # sum of non-grid powers
         self.history["unmet_load_kw"] = []
         self.history["curtailed_gen_kw"] = []
         self.history["downtime"] = []              # 1 if unmet > 0 else 0
         self.history["total_cashflow"] = []
+
+        # Time index
+        self.history["t"] = []
 
         self.current_step = 0
 
@@ -184,7 +187,7 @@ class MicrogridEnv:
         self.history["gen_total_kw"].append(summary["gen_kw"])
         self.history["load_total_kw"].append(summary["load_kw"])
         self.history["storage_total_kw"].append(summary["storage_kw"])
-        self.history["grid_power"].append(summary["grid_kw"])
+        self.history["grid_slack_kw"].append(summary["grid_kw"])
         self.history["net_power_unbalanced"].append(
             summary["gen_kw"] + summary["storage_kw"] + summary["load_kw"]
         )
@@ -192,6 +195,9 @@ class MicrogridEnv:
         self.history["curtailed_gen_kw"].append(summary["curtailed_kw"])
         self.history["downtime"].append(1.0 if summary["unmet_kw"] > 0.0 else 0.0)
         self.history["total_cashflow"].append(summary["total_cost"])
+
+        # Time index
+        self.history["t"].append(self.current_step)
 
     # ---------------------------------------------------------------------
     # Simulation loop
@@ -264,12 +270,34 @@ class MicrogridEnv:
     # ---------------------------------------------------------------------
     def get_results(self, as_dataframe: bool = True):
         """
-        Fetch the history log.
+        Return the simulation history.
+        If some component histories are shorter/longer, we pad with NaN.
+        This preserves all available data and lets pandas handle alignment.
+
+        Parameters
+        ----------
+        as_dataframe : bool, default True
+            If True, return a pandas DataFrame; otherwise, return the raw dict.
 
         Returns
         -------
-        pandas.DataFrame (default) or dict of lists.
+        pandas.DataFrame | dict
         """
+        if not self.history:
+            return pd.DataFrame() if (as_dataframe and pd is not None) else {}
+
+        L = int(self.current_step)
+
         if as_dataframe and pd is not None:
-            return pd.DataFrame(self.history)
-        return self.history
+            aligned = {}
+            for k, v in self.history.items():
+                s = pd.Series(v, dtype=float)
+                s = s.iloc[:L]            # clip anything longer than executed steps
+                s = s.reindex(range(L))   # pad gaps with NaN
+                aligned[k] = s
+            df = pd.DataFrame(aligned)
+            df.index.name = "step"
+            return df
+
+        # fallback: just return dict clipped to L (no NaN padding for plain lists)
+        return {k: list(v[:L]) for k, v in self.history.items()}
