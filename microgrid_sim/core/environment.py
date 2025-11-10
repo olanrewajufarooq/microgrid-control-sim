@@ -44,17 +44,16 @@ Model Predictive Control of Microgrids. Springer.
 """
 
 from __future__ import annotations
+
 from typing import Dict, List, Optional
-from collections import OrderedDict
 
 try:
     import pandas as pd
 except Exception:
     pd = None
 
-from microgrid_sim.components.base import (
-    BaseComponent, BaseGenerator, BaseStorage, BaseLoad
-)
+from microgrid_sim.components.base import (BaseComponent, BaseGenerator,
+                                           BaseLoad, BaseStorage)
 from microgrid_sim.components.generators import GridIntertie
 from microgrid_sim.system import MicrogridSystem
 
