@@ -1,0 +1,11 @@
+# Core libraries
+numpy
+pandas
+matplotlib
+statsmodels
+
+# For future control (we can add these later)
+# gym
+# stable-baselines3
+# tensorflow
+# torch
