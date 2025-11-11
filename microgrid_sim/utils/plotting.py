@@ -64,6 +64,7 @@ _COLOR_OVERRIDES = {
     "house1":               "#2CA02C",  # green
     "house2":               "#17BECF",  # cyan
     "house3":               "#9467BD",  # purple
+    "site_load":            "#8C564B",
 
     # --- KPIs ---
     "total_cashflow":       "#9467BD",  # purple
@@ -106,52 +107,29 @@ def _set_xaxis_time(axs: List[plt.Axes], x_axis_data: np.ndarray, x_label: str, 
     """
     if not x_axis_data.any():
         return
-
-    # Set x-limits based on the data (which is in hours)
     for ax in axs:
         ax.set_xlim(x_axis_data[0], x_axis_data[-1])
 
-    # Get the bottom axis (the only one that needs labels)
     bottom_ax = axs[-1]
-
     if total_hours <= 48: # 0-2 days, show simple hours
-        tick_step = max(1, int(total_hours / 12)) * 2 # e.g., 2, 4, 6, 8
+        tick_step = max(1, int(total_hours / 12)) * 2
         ticks = np.arange(0, total_hours + 1, tick_step)
-
         bottom_ax.set_xticks(ticks)
-        bottom_ax.set_xticklabels([f"{t:.0f}h" for t in ticks]) # e.g., "12h"
+        bottom_ax.set_xticklabels([f"{t:.0f}h" for t in ticks])
         bottom_ax.set_xlabel("Time (Hours)")
-
     else: # > 2 days, show days with hour sub-ticks
-
-        # --- Set Major Ticks (Days) ---
-        # Set a major tick every 24 hours (at 0, 24, 48, ...)
         bottom_ax.xaxis.set_major_locator(ticker.MultipleLocator(24))
-
-        # Format the major tick labels as "1", "2", "3"
         def day_formatter(hour, pos):
-            # The tick at 0h is Day 1, 24h is Day 2, etc.
             return f"{int(hour / 24) + 1}"
-
         bottom_ax.xaxis.set_major_formatter(ticker.FuncFormatter(day_formatter))
-
-        # --- Set Minor Ticks (Hours) ---
-        # Set a minor tick every 6 hours (at 6, 12, 18, 30, 36, 42, ...)
         bottom_ax.xaxis.set_minor_locator(ticker.MultipleLocator(6))
-
-        # Format the minor tick labels as "6h", "12h", "18h"
         def hour_formatter(hour, pos):
             hour_of_day = hour % 24
-            if hour_of_day == 0:
-                return "" # Don't label the major ticks (0h, 24h, etc.)
-            return f"{int(hour_of_day)}h" # Label as "6h", "12h", "18h"
-
+            if hour_of_day == 0: return ""
+            return f"{int(hour_of_day)}h"
         bottom_ax.xaxis.set_minor_formatter(ticker.FuncFormatter(hour_formatter))
-
-        # Adjust label appearance
         bottom_ax.tick_params(axis='x', which='major', labelsize=10, length=6, width=1.2)
         bottom_ax.tick_params(axis='x', which='minor', labelsize=8, labelcolor='#555', length=3)
-
         bottom_ax.set_xlabel(x_label) # "Time (Days)"
 
 def _ensure_dir(path: str):
@@ -177,19 +155,43 @@ def _apply_conference_style():
         "figure.autolayout": False,
     })
 
-def _collect_series_names(df, actions: Optional[List[Dict[str, float]]], has_grid: bool) -> List[str]:
+
+def _find_components(df_cols: List[str]) -> Tuple[List[str], List[str], List[str], List[str]]:
+    """Identifies component names from the DataFrame columns."""
+    # Define known component types
+    KNOWN_GENS = ["pv", "wind", "diesel"]
+    KNOWN_STORAGE = ["bat"]
+    KNOWN_LOADS = ["house", "factory", "site_load"]
+
+    gens, storage, loads, grids = [], [], [], []
+
+    for col in df_cols:
+        if not col.endswith("_power"):
+            continue
+
+        name = col.replace("_power", "")
+
+        if name in KNOWN_GENS:
+            gens.append(name)
+        elif name in KNOWN_STORAGE:
+            storage.append(name)
+        elif any(name.startswith(load_type) for load_type in KNOWN_LOADS):
+            loads.append(name)
+        elif name.startswith("grid"):
+            grids.append(name)
+
+    return gens, storage, loads, grids
+
+def _collect_series_names(df, actions: Optional[List[Dict[str, float]]]) -> List[str]:
     """Collects all unique series names for consistent color mapping."""
     names = set()
-    comps, _ = _infer_components(df.columns)
-    for n in comps:
-        names.add(n)
+    gens, storage, loads, grids = _find_components(df.columns)
 
-    # Add all grid-like components
-    for c in df.columns:
-        if c.startswith("grid") and c.endswith("_power"):
-            names.add(c.replace("_power", ""))
+    for group in [gens, storage, loads, grids]:
+        for name in group:
+            names.add(name)
 
-    if has_grid:
+    if grids:
         names.add("grid_import") # Special name for consumption plot
 
     for special in ["total_cashflow", "unmet_load_kw", "curtailed_gen_kw", "downtime",
@@ -211,18 +213,15 @@ def _collect_series_names(df, actions: Optional[List[Dict[str, float]]], has_gri
             if _normalize_name(n) == key and n not in seen:
                 ordered.append(n)
                 seen.add(n)
-
     for n in sorted(names, key=lambda s: s.lower()):
         if n not in seen:
             ordered.append(n)
             seen.add(n)
-
     return ordered
 
 def _build_color_map(df, actions: Optional[List[Dict[str, float]]]) -> Dict[str, str]:
     """Builds the name -> hex color mapping."""
-    _, has_grid = _infer_components(df.columns)
-    names = _collect_series_names(df, actions, has_grid)
+    names = _collect_series_names(df, actions)
     palette = list(_BASE_PALETTE)
     used_colors = set()
     color_map: Dict[str, str] = {}
@@ -243,7 +242,6 @@ def _build_color_map(df, actions: Optional[List[Dict[str, float]]]) -> Dict[str,
             continue
         color_map[n] = palette_cycle[idx % len(palette_cycle)]
         idx += 1
-
     return color_map
 
 
@@ -251,15 +249,16 @@ def _build_color_map(df, actions: Optional[List[Dict[str, float]]]) -> Dict[str,
 # Plotters (accept x_axis_data)
 # --------------------------
 
-def _plot_generation(ax, df, comps: List[str], has_grid: bool, color_map: Dict[str, str], x_axis_data: np.ndarray):
+def _plot_generation(ax, df, gen_comps: List[str], stor_comps: List[str],
+                     color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots all positive power (generation, battery discharge)."""
     any_plotted = False
 
-    # Plot all components inferred (PV, Wind, Diesel, Bat)
-    for cname in comps:
+    # Plot all generators and storage (positive part)
+    for cname in gen_comps + stor_comps:
         col = f"{cname}_power"
         if col in df.columns:
-            y = np.clip(df[col].values.astype(float), 0, None)
+            y = np.clip(df[col].values.astype(float), 0, None) # Only positive
             if np.any(np.nan_to_num(y) > 0):
                 ax.plot(x_axis_data, y, label=cname, color=color_map.get(cname, "#000000"))
                 any_plotted = True
@@ -267,14 +266,15 @@ def _plot_generation(ax, df, comps: List[str], has_grid: bool, color_map: Dict[s
     ax.set_title("Generation Power (kW) — positive portions only")
     ax.set_ylabel("kW")
     if any_plotted:
-        ax.legend(ncol=4, loc='upper left')
+        ax.legend(ncol=4, loc='best')
 
-def _plot_consumption(ax, df, comps: List[str], has_grid: bool, color_map: Dict[str, str], x_axis_data: np.ndarray):
+def _plot_consumption(ax, df, load_comps: List[str], stor_comps: List[str], grid_comps: List[str],
+                      color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots all negative power (loads, battery charge, grid import)."""
     any_plotted = False
 
-    # Plot loads and battery charging
-    for cname in comps:
+    # Plot loads and battery charging (negative part)
+    for cname in load_comps + stor_comps:
         col = f"{cname}_power"
         if col in df.columns:
             y = df[col].values.astype(float)
@@ -284,23 +284,22 @@ def _plot_consumption(ax, df, comps: List[str], has_grid: bool, color_map: Dict[
                 any_plotted = True
 
     # Plot grid import (as a negative value)
-    if has_grid:
-        for c in df.columns:
-             if c.startswith("grid") and c.endswith("_power"):
-                g = df[c].values.astype(float)
-                grid_import_as_neg = -np.clip(g, 0, None) # Clip positive (import) -> make negative
-                if np.any(np.nan_to_num(grid_import_as_neg) < 0):
-                    name = c.replace("_power", "")
-                    ax.plot(x_axis_data, grid_import_as_neg, label=f"{name}_import",
-                            color=color_map.get(f"{name}_import", "#000000"))
-                    any_plotted = True
+    for cname in grid_comps:
+        col = f"{cname}_power"
+        if col in df.columns:
+            g = df[col].values.astype(float)
+            grid_import_as_neg = -np.clip(g, 0, None)
+            if np.any(np.nan_to_num(grid_import_as_neg) < 0):
+                ax.plot(x_axis_data, grid_import_as_neg, label=f"{cname}_import",
+                        color=color_map.get(f"{cname}_import", "#000000"))
+                any_plotted = True
 
     ax.set_title("Consumption Power (kW) — negative portions & grid imports")
     ax.set_ylabel("kW")
     if any_plotted:
-        ax.legend(ncol=4, loc='upper left')
+        ax.legend(ncol=4, loc='best')
 
-def _plot_net_vs_grid(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
+def _plot_net_vs_grid(ax, df, grid_comps: List[str], color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots net power vs. grid actual power."""
     if "net_power_unbalanced" in df.columns:
         ax.plot(x_axis_data, df["net_power_unbalanced"], label="net_power_unbalanced",
@@ -309,19 +308,17 @@ def _plot_net_vs_grid(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray
         ax.plot(x_axis_data, df["grid_slack_kw"], label="grid_required (slack)",
                 linestyle="--", color=color_map.get("grid_slack_kw", "#7F7F7F"))
 
-    # Plot all grid components' actual power
-    for c in df.columns:
-        if c.startswith("grid") and c.endswith("_power"):
-            name = c.replace("_power", "")
-            ax.plot(x_axis_data, df[c], label=f"{name}_actual",
-                    color=color_map.get(name, "#000000"))
+    for cname in grid_comps:
+        col = f"{cname}_power"
+        if col in df.columns:
+            ax.plot(x_axis_data, df[col], label=f"{cname}_actual",
+                    color=color_map.get(cname, "#000000"))
 
     ax.set_title("Net vs Grid (kW)")
     ax.set_ylabel("kW")
-    ax.legend(ncol=4, loc='upper left')
+    ax.legend(ncol=4, loc='best')
 
 def _plot_socs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
-    """Plots SoC for all storage components."""
     plotted = False
     for c in df.columns:
         if c.endswith("_soc"):
@@ -330,11 +327,9 @@ def _plot_socs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
             plotted = True
     ax.set_title("State of Charge (SOC)")
     ax.set_ylabel("SOC (0–1)")
-    if plotted:
-        ax.legend(ncol=4, loc='upper left')
+    if plotted: ax.legend(ncol=4, loc='best')
 
 def _plot_costs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
-    """Plots per-step cash flow by component."""
     plotted = False
     for col in df.columns:
         if col.endswith("_cost") and col != "total_cashflow":
@@ -342,14 +337,11 @@ def _plot_costs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
             if np.any(np.nan_to_num(df[col]) != 0):
                 ax.plot(x_axis_data, df[col], label=name, color=color_map.get(name, "#000000"))
                 plotted = True
-
     ax.set_title("Per-Step Cash Flow (NEG=expense, POS=revenue)")
     ax.set_ylabel("$ / step")
-    if plotted:
-        ax.legend(ncol=4, loc='upper left')
+    if plotted: ax.legend(ncol=4, loc='best')
 
 def _plot_cumulative_cash(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
-    """Plots the cumulative sum of total cash flow."""
     if "total_cashflow" in df.columns:
         ax.plot(x_axis_data, df["total_cashflow"].cumsum(),
                 color=color_map.get("total_cashflow", "#9467BD"))
@@ -357,7 +349,6 @@ def _plot_cumulative_cash(ax, df, color_map: Dict[str, str], x_axis_data: np.nda
     ax.set_ylabel("$")
 
 def _plot_unmet_curtailed(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
-    """Plots unmet load, curtailed generation, and downtime."""
     plotted = False
     if "unmet_load_kw" in df.columns and np.any(np.nan_to_num(df["unmet_load_kw"]) > 0):
         ax.plot(x_axis_data, df["unmet_load_kw"], label="Unmet Load (kW)",
@@ -373,18 +364,15 @@ def _plot_unmet_curtailed(ax, df, color_map: Dict[str, str], x_axis_data: np.nda
         plotted = True
     ax.set_title("Security of Supply")
     ax.set_ylabel("kW (and 0/1)")
-    if plotted:
-        ax.legend(ncol=3, loc='upper left')
+    if plotted: ax.legend(ncol=3, loc='best')
 
 def _plot_actions(ax, actions: List[Dict[str, float]], color_map: Dict[str, str], x_axis_data: np.ndarray):
-    """Plots the actions taken by the controller."""
     keys = set()
     for a in actions:
         if a:
             for k in a.keys():
                 keys.add(k)
     keys = sorted(keys, key=lambda s: s.lower())
-
     plotted = False
     for k in keys:
         series = []
@@ -395,17 +383,13 @@ def _plot_actions(ax, actions: List[Dict[str, float]], color_map: Dict[str, str]
             try:
                 series.append(float(v))
             except (ValueError, TypeError):
-                 series.append(np.nan) # Handle 'connect'/'disconnect'
-
+                 series.append(np.nan)
         if not all(np.isnan(series)):
-            # Use step plot for setpoints
             ax.step(x_axis_data, series, where='post', label=k, color=color_map.get(k, "#000000"))
             plotted = True
-
     ax.set_title("Actions by Component (Numeric Setpoints)")
     ax.set_ylabel("Setpoint")
-    if plotted:
-        ax.legend(ncol=4, loc='upper left')
+    if plotted: ax.legend(ncol=4, loc='best')
 
 
 # --------------------------
@@ -423,26 +407,13 @@ def plot_simulation(
 ):
     """
     Create a multi-panel dashboard and (optionally) save combined + individual figures.
-
-    Args:
-        df (pd.DataFrame): The results dataframe from MicrogridEnv.get_results().
-        actions (list, optional): The list of action dicts used.
-        sim_dt_minutes (int): The duration of a single step (e.g., 1 or 60).
-        sim_name (str, optional): Name for saving the plot, e.g., "scen_1".
-        base_dir (str): Root directory to save plots.
-        save (bool): Whether to save the plots to disk.
-        formats (iterable): Formats to save (e.g., ["png", "pdf"]).
-        style (str, optional): Matplotlib style to apply ("conference").
-
-    Returns:
-        dict: {"fig": fig, "axes": axes_list, "out_dir": path or None}
     """
     try:
         import pandas as pd
         if not hasattr(df, "columns"):
             df = pd.DataFrame(df)
     except Exception:
-        pass # Allow non-pandas dicts
+        pass
 
     if style == "conference":
         _apply_conference_style()
@@ -450,19 +421,13 @@ def plot_simulation(
     # --- Time Axis Calculation ---
     n_steps = len(df)
     total_hours = (n_steps * sim_dt_minutes) / 60.0
-
-    # ALWAYS calculate x_axis_data in HOURS
-    x_axis_data = np.arange(n_steps) * (sim_dt_minutes / 60.0)
-
-    if total_hours <= 48:
-        x_label = f"Time (Hours)"
-    else:
-        x_label = f"Time (Days)"
+    x_axis_data = np.arange(n_steps) * (sim_dt_minutes / 60.0) # ALWAYS in hours
+    x_label = "Time (Days)" if total_hours > 48 else "Time (Hours)"
     # ---
 
-    comps, has_grid = _infer_components(df.columns)
+    # --- **NEW** Component identification ---
+    gens, storage, loads, grids = _find_components(df.columns)
 
-    # We need the action list to be the same length as the dataframe
     if actions is not None:
         if len(actions) > n_steps:
             actions = actions[:n_steps]
@@ -475,10 +440,9 @@ def plot_simulation(
     fig, axs = plt.subplots(nrows, 1, figsize=(14, 3*nrows), sharex=True)
     ax_idx = 0
 
-    # --- Call plotters with new x_axis_data ---
-    _plot_generation(axs[ax_idx], df, comps, has_grid, color_map, x_axis_data); ax_idx += 1
-    _plot_consumption(axs[ax_idx], df, comps, has_grid, color_map, x_axis_data); ax_idx += 1
-    _plot_net_vs_grid(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
+    _plot_generation(axs[ax_idx], df, gens, storage, color_map, x_axis_data); ax_idx += 1
+    _plot_consumption(axs[ax_idx], df, loads, storage, grids, color_map, x_axis_data); ax_idx += 1
+    _plot_net_vs_grid(axs[ax_idx], df, grids, color_map, x_axis_data); ax_idx += 1
     _plot_socs(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
     _plot_costs(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
     _plot_cumulative_cash(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
@@ -486,7 +450,6 @@ def plot_simulation(
     if actions is not None:
         _plot_actions(axs[ax_idx], actions, color_map, x_axis_data); ax_idx += 1
 
-    # --- Apply new axis formatting ---
     _set_xaxis_time(axs, x_axis_data, x_label, total_hours)
 
     fig.suptitle("Microgrid Simulation — Overview", y=0.995)
@@ -498,24 +461,21 @@ def plot_simulation(
         indiv_dir = os.path.join(out_dir, "individuals")
         _ensure_dir(indiv_dir)
 
-        # Save combined
         for fmt in formats:
             fig.savefig(os.path.join(out_dir, f"overview.{fmt}"))
 
-        # --- Fix _save_single function ---
         def _save_single(plot_fn_lambda, filename_root: str):
             f, ax = plt.subplots(1, 1, figsize=(10, 4))
-            plot_fn_lambda(ax) # Lambda now bakes in all args
-            _set_xaxis_time([ax], x_axis_data, x_label, total_hours) # Use new axis
+            plot_fn_lambda(ax)
+            _set_xaxis_time([ax], x_axis_data, x_label, total_hours)
             f.tight_layout()
             for fmt in formats:
                 f.savefig(os.path.join(indiv_dir, f"{filename_root}.{fmt}"))
             plt.close(f)
 
-        # Update lambdas to pass x_axis_data
-        _save_single(lambda ax: _plot_generation(ax, df, comps, has_grid, color_map, x_axis_data), "generation")
-        _save_single(lambda ax: _plot_consumption(ax, df, comps, has_grid, color_map, x_axis_data), "consumption")
-        _save_single(lambda ax: _plot_net_vs_grid(ax, df, color_map, x_axis_data), "net_vs_grid")
+        _save_single(lambda ax: _plot_generation(ax, df, gens, storage, color_map, x_axis_data), "generation")
+        _save_single(lambda ax: _plot_consumption(ax, df, loads, storage, grids, color_map, x_axis_data), "consumption")
+        _save_single(lambda ax: _plot_net_vs_grid(ax, df, grids, color_map, x_axis_data), "net_vs_grid")
         _save_single(lambda ax: _plot_socs(ax, df, color_map, x_axis_data), "soc")
         _save_single(lambda ax: _plot_costs(ax, df, color_map, x_axis_data), "costs")
         _save_single(lambda ax: _plot_cumulative_cash(ax, df, color_map, x_axis_data), "cumulative_cash")

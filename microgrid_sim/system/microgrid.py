@@ -76,7 +76,6 @@ class MicrogridSystem:
         # step each component
         totals = dict(gen=0.0, load=0.0, stor=0.0, grid=0.0, cost=0.0)
 
-        all_comps: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
         non_grid_comps: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
 
         for comp in non_grid_comps:

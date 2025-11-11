@@ -1,11 +1,9 @@
 """
 Shared types and interfaces for the microgrid simulator.
 """
-from typing import Protocol, Dict, Any, TypedDict, Literal
+from typing import List, Protocol, Dict, Any, TypedDict, Literal
 
-# --- 1. Controller Interface ---
-# This formalizes your "plug-and-play" idea.
-# Any controller must have a 'decide' method with this signature.
+# Controller Interface
 class EmsController(Protocol):
     """
     Interface for any controller that can be passed to the Environment.
@@ -17,8 +15,7 @@ class EmsController(Protocol):
                ) -> Dict[str, Any]:
         ...
 
-# --- 2. Standard Action Payloads (like TypeScript interfaces) ---
-# This makes the 'actions' dictionary explicit.
+# Standard Action Payloads
 
 class BatteryAction(TypedDict, total=False):
     """Action for a BatteryStorage component."""
@@ -32,3 +29,17 @@ class FossilAction(TypedDict, total=False):
 
 # You can also define the grid action
 GridAction = float or Literal["connect", "disconnect"]
+
+class DataBuilder(Protocol):
+    """
+    Interface (Protocol) for any data source.
+
+    This is the "wrapper" that allows different data sources
+    (synthetic, Liège, etc.) to be used by the simulation.
+    """
+    def build_list(self) -> List[Dict[str, Dict[str, float]]]:
+        """
+        Builds and returns the complete, high-fidelity (per-minute)
+        exogenous data list for the entire simulation period.
+        """
+        ...

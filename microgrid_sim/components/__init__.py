@@ -3,7 +3,7 @@ microgrid_sim.components
 """
 from .base import BaseComponent, BaseGenerator, BaseStorage, BaseLoad
 from .storage import BatteryStorage
-from .generators import PVGenerator, WindTurbine, HydroGenerator, FossilGenerator, GridIntertie
+from .generators import PVGenerator, WindTurbine, HydroGenerator, FossilGenerator, GridIntertie, ReplayGenerator
 from .loads import ResidentialLoad, FactoryLoad
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     "HydroGenerator",
     "FossilGenerator",
     "GridIntertie",
+    "ReplayGenerator",
     "ResidentialLoad",
     "FactoryLoad",
 ]

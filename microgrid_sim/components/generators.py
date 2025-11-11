@@ -479,3 +479,53 @@ class GridIntertie(BaseGenerator):
             self._cost =- price_import * e
         else: # Exporting
             self._cost =+ price_export * e
+
+# ============================================================
+# --- Replay Generator (Data-Driven) -------------------------
+# ============================================================
+
+class ReplayGenerator(BaseGenerator):
+    """
+    A simple, data-driven generator that "replays" a power
+    time series from the exogenous data feed.
+
+    It looks for an exogenous key "power_kw" and outputs
+    that value directly.
+
+    This component *does* support connect/disconnect for
+    curtailment rules.
+    """
+    def __init__(self, name: str, time_step_minutes: float):
+        super().__init__(name)
+        self.params = {"time_step_minutes": time_step_minutes}
+        self._connected = True
+
+    def connect(self):
+        """Connects the component to the grid."""
+        self._connected = True
+
+    def disconnect(self):
+        """Disconnects the component, forcing power to 0."""
+        self._connected = False
+
+    def reset(self):
+        """Resets the component to its initial state."""
+        super().reset()
+        self._connected = True
+
+    def step(self, t: int, **kwargs):
+        """
+        Steps the component by reading the 'power_kw' from
+        the exogenous data and setting it as the output.
+        """
+        if not self._connected:
+            self._power_output = 0.0
+            self._cost = 0.0
+            return
+
+        exo = kwargs.get("exogenous", {}) or {}
+        p = float(exo.get("power_kw", 0.0))
+
+        # We assume the data is already cleaned (non-negative)
+        self._power_output = max(0.0, p)
+        self._cost = 0.0 # Replay generators have no marginal cost
