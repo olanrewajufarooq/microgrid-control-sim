@@ -337,42 +337,50 @@ class FossilGenerator(BaseGenerator, GeneratorCostMixin):
         a = kwargs.get("action", 0.0)
 
         # Parse action
+        on_cmd = self._on
+        sp = None  # None means "no setpoint provided"
         if isinstance(a, dict):
             on_cmd = bool(a.get("on", self._on))
-            sp = float(a.get("power_setpoint", 0.0))
+            sp_raw = a.get("power_setpoint", None)
+            if sp_raw is not None:
+                try:
+                    sp = float(sp_raw)
+                except (TypeError, ValueError):
+                    sp = None  # treat invalid as not provided
         else:
-            sp = float(a)
-            on_cmd = sp > 0.0
+            # numeric or string → try cast
+            try:
+                sp = float(a)
+                on_cmd = sp > 0.0
+            except (TypeError, ValueError):
+                sp = None
+                on_cmd = self._on
 
         prev_on = self._on
         self._on = on_cmd
 
-        # Dispatch power
+        # --- Dispatch power ---
         if not self._on:
             dispatched_kw = 0.0
         else:
-            # If no setpoint was provided and ON, default to p_min
-            if isinstance(a, dict) and "power_setpoint" not in a:
+            if sp is None:
+                # ON but no setpoint → default to p_min
                 dispatched_kw = max(self.params.p_min_kw, 0.0)
             else:
                 dispatched_kw = max(self.params.p_min_kw,
-                                    min(self.params.p_max_kw, float(sp)))
+                                    min(self.params.p_max_kw, sp))
 
         self._power_output = max(0.0, dispatched_kw)
 
-        # Per-step costs (NEGATIVE = expense)
+        # --- Per-step costs (NEGATIVE = expense) ---
         dt_h = self.dt_hours
         energy_kwh = self._power_output * dt_h
 
-        # Variable & fixed running costs (negative via mixin helpers)
         fuel_cost     = self.fuel_cost(energy_kwh, self.params.fuel_cost_per_kwh) if self._on else 0.0
         maint_cost    = self.maintenance_cost(dt_h, self.params.maintenance_cost_per_hour) if self._on else 0.0
-
-        # Start/stop costs this step (based on transition)
         start_cost    = self.startup_cost(self.params.startup_cost)   if (self._on and not prev_on) else 0.0
         shutdown_cost = self.shutdown_cost(self.params.shutdown_cost) if (prev_on and not self._on) else 0.0
 
-        # ✅ Per-step cashflow only (no accumulation)
         self._cost = fuel_cost + maint_cost + start_cost + shutdown_cost
 
 
@@ -524,7 +532,7 @@ class ReplayGenerator(BaseGenerator):
             self.disconnect()
         elif action == "connect":
             self.connect()
-        
+
         if not self._connected:
             self._power_output = 0.0
             self._cost = 0.0

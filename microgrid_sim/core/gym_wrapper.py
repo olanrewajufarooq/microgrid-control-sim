@@ -1,440 +1,446 @@
 """
 microgrid_sim/core/gym_wrapper.py
 
-Gymnasium-compatible wrapper for MicrogridEnv to enable RL training.
-
-This wrapper converts the MicrogridEnv into a standard Gym environment with:
-- Discrete/Continuous action spaces for battery, diesel, grid, renewables
-- Observation space with SOC, generation, loads, and grid prices
-- Reward function based on operational costs and reliability
+Gymnasium-compatible wrapper supporting multiple instances of components.
+FIXED: Corrects observation space, action parsing, and adapter integration.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Union
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
+from gymnasium.spaces.utils import flatten, unflatten, flatten_space
 
-from .environment import MicrogridEnv
-# from ..components.base import BaseGenerator, BaseStorage, BaseLoad
-# from ..components.generators import GridIntertie
-from ..types import DataBuilder
-
+from ..types import DataBuilder, EmsController
 from ..components.generators import PVGenerator, WindTurbine, FossilGenerator, GridIntertie
 from ..components.storage import BatteryStorage
-from ..components.loads import ResidentialLoad, FactoryLoad
+from ..components.loads import ResidentialLoad, FactoryLoad, BaseLoad
+from ..core.environment import MicrogridEnv
+
+
+# --- Internal Adapter Class for MicrogridEnv.run() ---
+class RLAdapter(EmsController):
+    """
+    Acts as an EmsController for MicrogridEnv.run().
+    Translates the RL Controller's output (Dict or Box) into the
+    MicrogridEnv action dictionary.
+    """
+    def __init__(self, rl_controller: Any, gym_env: 'MicrogridGymEnv', is_flattened: bool):
+        self.rl_controller = rl_controller
+        self.original_env = gym_env
+        self.is_flattened = is_flattened
+
+    def decide(self, hour: int, soc: float, exogenous: Dict[str, Any]) -> Dict[str, Any]:
+        """Implements the EmsController protocol by translating the agent's action."""
+
+        # 1. Construct the observation dict
+        observation = self.original_env._get_observation(exog_step=exogenous)
+
+        # 2. Get the action from the RL Controller
+        action_output = self.rl_controller.decide(observation, deterministic=True)
+
+        # 3. Unflatten if necessary
+        if self.is_flattened:
+            action_dict = unflatten(self.original_env.action_space, action_output)
+        else:
+            action_dict = action_output
+
+        # 4. Parse the action dict into the MicrogridEnv action dictionary
+        microgrid_action_dict = self.original_env._parse_action(action_dict)
+
+        return microgrid_action_dict
+
+
+# --- Internal Specialized Wrapper for SB3 PPO ---
+class FlattenedMicrogridGymEnv(gym.Wrapper):
+    """
+    Presents a flat Box to PPO. Internally:
+      - Discrete(k) keys consume k slots (logits) -> argmax -> integer in the original start..start+k-1
+      - Box(1,) keys consume 1 slot in [-1, 1] and are linearly mapped if needed downstream
+    """
+    def __init__(self, env: 'MicrogridGymEnv'):
+        super().__init__(env)
+        self._schema = []  # list of (key, kind, size, start)
+        total = 0
+        for k, sp in env.action_space.spaces.items():
+            if isinstance(sp, spaces.Discrete):
+                self._schema.append((k, "disc", sp.n, getattr(sp, "start", 0)))
+                total += sp.n
+            elif isinstance(sp, spaces.Box):
+                assert sp.shape == (1,), f"Only scalar Box actions supported for key {k}"
+                self._schema.append((k, "box", 1, None))
+                total += 1
+            else:
+                raise TypeError(f"Unsupported subspace for {k}: {type(sp)}")
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(total,), dtype=np.float32)
+        # observation_space stays the same as env (Dict)
+
+    def _unflatten_action(self, flat: np.ndarray):
+        flat = np.asarray(flat, dtype=np.float32).ravel()
+        out = {}
+        i = 0
+        for k, kind, size, start in self._schema:
+            if kind == "disc":
+                logits = flat[i:i+size]; i += size
+                cls = int(np.argmax(logits))
+                out[k] = (start or 0) + cls
+            else:
+                val = float(flat[i]); i += 1
+                out[k] = np.array([val], dtype=np.float32)
+        return out
+
+    def step(self, action: np.ndarray):
+        dict_action = self._unflatten_action(action)
+        return self.env.step(dict_action)
+
 
 class MicrogridGymEnv(gym.Env):
     """
-    Gymnasium wrapper for MicrogridEnv.
-
-    Action Space:
-    -------------
-    Box(8,) - Continuous actions:
-        [0] Battery action: -1 (max charge) to +1 (max discharge), 0 (off)
-        [1] Battery magnitude: 0 to 1 (fraction of max charge/discharge)
-        [2] Diesel on/off: 0 (off) or 1 (on)
-        [3] Grid mode: -1 (island), 0 (slack/connect), +1 (scheduled trade)
-        [4] Grid trade amount: -1 (max buy) to +1 (max sell)
-        [5] PV connect: 0 (disconnect) or 1 (connect)
-        [6] Wind connect: 0 (disconnect) or 1 (connect)
-        [7] Diesel setpoint: 0 to 1 (fraction of max power)
-
-    Observation Space:
-    ------------------
-    Box(8,) - Continuous observations:
-        [0] Battery SOC (0-1)
-        [1] Diesel power output (normalized 0-1)
-        [2] Grid import price (normalized)
-        [3] Grid export price (normalized)
-        [4] PV power (normalized 0-1)
-        [5] Wind power (normalized 0-1)
-        [6] Factory load (normalized 0-1)
-        [7] Residential load (normalized 0-1)
+    Gymnasium wrapper dynamically sized based on the components in the provided MicrogridEnv.
     """
 
     metadata = {"render_modes": ["human"], "render_fps": 1}
 
     def __init__(
         self,
+        microgrid_env: MicrogridEnv,
         data_builder: DataBuilder,
-        simulation_hours: int = 24,
-        control_interval_minutes: int = 60,
-        sim_dt_minutes: int = 1,
-        battery_capacity_kwh: float = 50.0,
-        battery_max_charge_kw: float = 8.0,
-        battery_max_discharge_kw: float = 8.0,
-        diesel_max_kw: float = 15.0,
-        pv_capacity_kw: float = 5.0,
-        wind_capacity_kw: float = 8.5,
-        max_factory_load_kw: float = 15.0,
-        max_residential_load_kw: float = 5.0,
-        grid_max_import_kw: float = 50.0,
-        grid_max_export_kw: float = 50.0,
         max_grid_price: float = 0.50,
         reward_weights: Optional[Dict[str, float]] = None,
         render_mode: Optional[str] = None
     ):
-        """
-        Initialize the Gym environment.
-
-        Args:
-            data_builder: DataBuilder instance to generate exogenous data
-            simulation_hours: Total hours to simulate
-            control_interval_minutes: Control decision interval
-            sim_dt_minutes: Physics simulation timestep
-            battery_capacity_kwh: Battery capacity
-            battery_max_charge_kw: Max battery charging rate
-            battery_max_discharge_kw: Max battery discharging rate
-            diesel_max_kw: Max diesel generator output
-            pv_capacity_kw: PV array capacity
-            wind_capacity_kw: Wind turbine capacity
-            max_factory_load_kw: Max factory load (for normalization)
-            max_residential_load_kw: Max residential load (for normalization)
-            grid_max_import_kw: Max grid import
-            grid_max_export_kw: Max grid export
-            max_grid_price: Max grid price (for normalization)
-            reward_weights: Custom reward function weights
-            render_mode: Rendering mode ('human' or None)
-        """
+        """Initializes the Gym environment by linking to an existing MicrogridEnv."""
         super().__init__()
 
+        # --- 1. Environment and Parameters Discovery ---
+        self.env = microgrid_env
+        self.data_builder = data_builder
         self.render_mode = render_mode
-
-        # Store normalization constants
-        self.battery_capacity_kwh = battery_capacity_kwh
-        self.battery_max_charge_kw = battery_max_charge_kw
-        self.battery_max_discharge_kw = battery_max_discharge_kw
-        self.diesel_max_kw = diesel_max_kw
-        self.pv_capacity_kw = pv_capacity_kw
-        self.wind_capacity_kw = wind_capacity_kw
-        self.max_factory_load_kw = max_factory_load_kw
-        self.max_residential_load_kw = max_residential_load_kw
-        self.grid_max_import_kw = grid_max_import_kw
-        self.grid_max_export_kw = grid_max_export_kw
         self.max_grid_price = max_grid_price
 
+        # Collect ALL components by type
+        self.batteries: List[BatteryStorage] = [c for c in self.env.storage if isinstance(c, BatteryStorage)]
+        self.diesels: List[FossilGenerator] = [c for c in self.env.generators if isinstance(c, FossilGenerator)]
+        self.pv_gens: List[PVGenerator] = [c for c in self.env.generators if isinstance(c, PVGenerator)]
+        self.wind_gens: List[WindTurbine] = [c for c in self.env.generators if isinstance(c, WindTurbine)]
+        self.all_loads: List[BaseLoad] = self.env.loads
+        self.grid: Optional[GridIntertie] = self.env.grid_component
+
+        # --- Mandatory Component Guardrails ---
+        if not self.batteries or not self.diesels or not self.grid:
+            raise ValueError("MicrogridGymEnv requires at least one BatteryStorage, one FossilGenerator, and the GridIntertie.")
+
+        self.grid_name = self.grid.name
+
+        # --- Dynamic Scaling Factors Dictionary ---
+        self.MAX_CAPACITIES: Dict[str, float] = {}
+
+        for bat in self.batteries:
+            self.MAX_CAPACITIES[f"bat_chg_{bat.name}"] = bat.params.max_charge_kw
+            self.MAX_CAPACITIES[f"bat_dis_{bat.name}"] = bat.params.max_discharge_kw
+        for d in self.diesels:
+            self.MAX_CAPACITIES[f"diesel_pmax_{d.name}"] = d.params.p_max_kw
+        for pv in self.pv_gens:
+            self.MAX_CAPACITIES[f"pv_cap_{pv.name}"] = pv.params.capacity_kw
+        for wind in self.wind_gens:
+            self.MAX_CAPACITIES[f"wind_rated_{wind.name}"] = wind.params.rated_kw
+        for load in self.all_loads:
+            self.MAX_CAPACITIES[f"load_max_{load.name}"] = getattr(load, 'base_kw', 1.0) * 1.5
+
         # Simulation parameters
-        self.simulation_hours = simulation_hours
-        self.control_dt = control_interval_minutes
-        self.sim_dt = sim_dt_minutes
-        self.steps_per_control = control_interval_minutes // sim_dt_minutes
-        self.max_steps = (simulation_hours * 60) // control_interval_minutes
+        self.control_dt = self.env.control_dt
+        self.sim_dt = self.env.sim_dt
+        self.steps_per_control = self.control_dt // self.sim_dt
+        self.max_steps = 0
 
-        # Data builder
-        self.data_builder = data_builder
-        self.exog_list: List[Dict[str, Dict[str, float]]] = []
-
-        # Environment (will be built in reset)
-        self.env: Optional[MicrogridEnv] = None
-        self.current_step = 0
-
-        # Reward weights (cost, unmet, curtailment, soc_penalty)
+        # Reward weights
         self.reward_weights = reward_weights or {
-            "cost": -1.0,
-            "unmet": -10.0,
-            "curtailment": -0.1,
-            "soc_deviation": -0.5
+            "cost": -1.0, "unmet": -10.0, "curtailment": -0.1, "soc_deviation": -0.5
         }
 
-        # Define action space: 8 continuous actions
-        self.action_space = spaces.Box(
-            low=np.array([-1, 0, 0, -1, -1, 0, 0, 0], dtype=np.float32),
-            high=np.array([1, 1, 1, 1, 1, 1, 1, 1], dtype=np.float32),
-            dtype=np.float32
-        )
+        # --- 2. Dynamic Action and Observation Space Definition ---
+        self.action_space = self._build_action_space()
+        self.observation_space = self._build_observation_space()
 
-        # Define observation space: 8 continuous observations
-        self.observation_space = spaces.Box(
-            low=np.array([0, 0, 0, 0, 0, 0, 0, 0], dtype=np.float32),
-            high=np.array([1, 1, 1, 1, 1, 1, 1, 1], dtype=np.float32),
-            dtype=np.float32
-        )
+        # Store exogenous list
+        self.exog_list: List[Dict[str, Dict[str, float]]] = []
+        self.current_step = 0
 
-    def _build_microgrid(self) -> MicrogridEnv:
-        """Builds the microgrid environment with all components."""
-        env = MicrogridEnv(
-            simulation_hours=self.simulation_hours,
-            control_interval_minutes=self.control_dt,
-            sim_dt_minutes=self.sim_dt
-        )
+    # --- Factory Methods for RL Integration ---
+    def create_flattened_env(self) -> FlattenedMicrogridGymEnv:
+        """Creates and returns a wrapper of this environment with a single Box action space."""
+        return FlattenedMicrogridGymEnv(self)
 
-        # Add components
-        pv = PVGenerator("pv", capacity_kw=self.pv_capacity_kw,
-                        time_step_minutes=self.sim_dt)
-        wind = WindTurbine("wind", rated_kw=self.wind_capacity_kw,
-                          time_step_minutes=self.sim_dt)
-        diesel = FossilGenerator("diesel", p_min_kw=0.0, p_max_kw=self.diesel_max_kw,
-                                time_step_minutes=self.sim_dt, fuel_cost_per_kwh=0.25)
+    def get_rl_adapter(self, rl_controller: Any, is_flattened: bool = False) -> RLAdapter:
+        """Returns an instance of the RLAdapter, ready to be passed to MicrogridEnv.run()."""
+        return RLAdapter(rl_controller, self, is_flattened)
 
-        battery = BatteryStorage(
-            "bat", capacity_kwh=self.battery_capacity_kwh,
-            time_step_minutes=self.sim_dt, initial_soc=0.5,
-            max_charge_kw=self.battery_max_charge_kw,
-            max_discharge_kw=self.battery_max_discharge_kw
-        )
+    # --- Action and Observation Builder Methods ---
+    def _build_action_space(self) -> spaces.Dict:
+        """Dynamically constructs the action space (Dict of Discrete/Box)."""
+        act_spaces = {}
 
-        factory = FactoryLoad("factory", base_kw=self.max_factory_load_kw * 0.7)
-        house = ResidentialLoad("house", base_kw=self.max_residential_load_kw * 0.6)
+        # 1. Grid
+        act_spaces[f"{self.grid.name}_mode"] = spaces.Discrete(3, start=-1)
+        act_spaces[f"{self.grid.name}_trade"] = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
 
-        grid = GridIntertie("grid", time_step_minutes=self.sim_dt,
-                           price_import_per_kwh=0.20, price_export_per_kwh=0.05,
-                           import_limit_kw=self.grid_max_import_kw,
-                           export_limit_kw=self.grid_max_export_kw)
+        # 2. Batteries
+        for bat in self.batteries:
+            act_spaces[f"{bat.name}_mode"] = spaces.Discrete(3, start=-1)  # -1=charge, 0=off, 1=discharge
+            act_spaces[f"{bat.name}_mag"] = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 
-        env.add_component(pv)
-        env.add_component(wind)
-        env.add_component(diesel)
-        env.add_component(battery)
-        env.add_component(factory)
-        env.add_component(house)
-        env.add_component(grid, is_grid=True)
+        # 3. Diesels
+        for d in self.diesels:
+            act_spaces[f"{d.name}_on"] = spaces.Discrete(2)
+            act_spaces[f"{d.name}_sp"] = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 
-        return env
+        # 4. Renewables
+        for pv in self.pv_gens:
+            act_spaces[f"{pv.name}_con"] = spaces.Discrete(2)
+        for wind in self.wind_gens:
+            act_spaces[f"{wind.name}_con"] = spaces.Discrete(2)
 
-    def _get_observation(self, exog_step: Dict[str, Dict[str, float]]) -> np.ndarray:
-        """
-        Extracts observation from current environment state and exogenous data.
+        return spaces.Dict(act_spaces)
 
-        Returns:
-            np.ndarray: Normalized observation vector [8,]
-        """
-        obs = np.zeros(8, dtype=np.float32)
+    def _build_observation_space(self) -> spaces.Dict:
+        """Dynamically constructs the observation space."""
+        obs_spaces = {}
 
-        # [0] Battery SOC
-        for storage in self.env.storage:
-            if storage.name == "bat":
-                obs[0] = float(storage.get_soc())
-                break
+        # 1. Grid Prices
+        obs_spaces[f"{self.grid.name}_p_imp"] = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
+        obs_spaces[f"{self.grid.name}_p_exp"] = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 
-        # [1] Diesel power (normalized)
-        for gen in self.env.generators:
-            if gen.name == "diesel":
-                obs[1] = float(gen.get_power() / self.diesel_max_kw)
-                break
+        # 2. Batteries (SOC)
+        for bat in self.batteries:
+            obs_spaces[f"{bat.name}_soc"] = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 
-        # [2-3] Grid prices (normalized)
-        grid_exog = exog_step.get("grid", {})
-        obs[2] = grid_exog.get("price_import_per_kwh", 0.20) / self.max_grid_price
-        obs[3] = grid_exog.get("price_export_per_kwh", 0.05) / self.max_grid_price
+        # 3. Diesels (Power)
+        for d in self.diesels:
+            obs_spaces[f"{d.name}_p"] = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 
-        # [4] PV power (normalized)
-        pv_exog = exog_step.get("pv", {})
-        pv_irr = pv_exog.get("irradiance_Wm2", 0.0)
-        obs[4] = min(1.0, (self.pv_capacity_kw * 0.9 * pv_irr / 1000.0) / self.pv_capacity_kw)
+        # 4. Renewables (Power from exogenous)
+        for pv in self.pv_gens:
+            obs_spaces[f"{pv.name}_p"] = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
+        for wind in self.wind_gens:
+            obs_spaces[f"{wind.name}_p"] = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 
-        # [5] Wind power (normalized)
-        wind_exog = exog_step.get("wind", {})
-        wind_speed = wind_exog.get("wind_speed_ms", 0.0)
-        # Approximate wind power curve
-        if wind_speed < 3 or wind_speed > 25:
-            wind_p = 0
-        elif wind_speed < 12:
-            wind_p = ((wind_speed - 3) / (12 - 3)) ** 3
-        else:
-            wind_p = 1.0
-        obs[5] = wind_p
+        # 5. Loads
+        for load in self.all_loads:
+            obs_spaces[f"{load.name}_l"] = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 
-        # [6] Factory load (normalized)
-        factory_exog = exog_step.get("factory", {})
-        obs[6] = factory_exog.get("load_kw", 0.0) / self.max_factory_load_kw
+        return spaces.Dict(obs_spaces)
 
-        # [7] Residential load (normalized)
-        house_exog = exog_step.get("house", {})
-        obs[7] = house_exog.get("load_kw", 0.0) / self.max_residential_load_kw
+    def _get_observation(self, exog_step: Dict[str, Dict[str, float]]) -> Dict[str, np.ndarray]:
+        """Extracts and normalizes observation from component states and exogenous data."""
+        obs = {}
 
-        # Clip to [0, 1]
-        obs = np.clip(obs, 0.0, 1.0)
+        # 1. Grid Prices
+        grid_exog = exog_step.get(self.grid.name, {})
+        obs[f"{self.grid.name}_p_imp"] = np.array([
+            grid_exog.get("price_import_per_kwh", 0.20) / self.max_grid_price
+        ], dtype=np.float32)
+        obs[f"{self.grid.name}_p_exp"] = np.array([
+            grid_exog.get("price_export_per_kwh", 0.05) / self.max_grid_price
+        ], dtype=np.float32)
+
+        # 2. Batteries (SOC)
+        for bat in self.batteries:
+            obs[f"{bat.name}_soc"] = np.array([bat.get_soc()], dtype=np.float32)
+
+        # 3. Diesels (Power)
+        for d in self.diesels:
+            diesel_norm = d.get_power() / self.MAX_CAPACITIES[f"diesel_pmax_{d.name}"]
+            obs[f"{d.name}_p"] = np.array([np.clip(diesel_norm, 0.0, 1.0)], dtype=np.float32)
+
+        # 4. PV (Approximate Power from Exogenous)
+        for pv in self.pv_gens:
+            pv_exog = exog_step.get(pv.name, {})
+            pv_irr = pv_exog.get("irradiance_Wm2", 0.0)
+
+            if pv_irr > 0.0 and pv.params.capacity_kw > 0:
+                pv_approx_power = (pv.params.capacity_kw * pv.params.derate * pv_irr / 1000.0)
+            else:
+                pv_approx_power = pv_exog.get("power_kw", 0.0)
+
+            pv_norm = pv_approx_power / self.MAX_CAPACITIES[f"pv_cap_{pv.name}"]
+            obs[f"{pv.name}_p"] = np.array([np.clip(pv_norm, 0.0, 1.0)], dtype=np.float32)
+
+        # 5. Wind (Approximate Power from Exogenous)
+        for wind in self.wind_gens:
+            wind_exog = exog_step.get(wind.name, {})
+            wind_speed = wind_exog.get("wind_speed_ms", 0.0)
+
+            if wind_speed > 0.0 and wind.params.rated_kw > 0:
+                v_ci = wind.params.cut_in_ms
+                v_r = wind.params.rated_ms
+                v_co = wind.params.cut_out_ms
+
+                if wind_speed < v_ci or wind_speed > v_co:
+                    wind_approx_power = 0.0
+                elif wind_speed < v_r:
+                    wind_p_norm = ((wind_speed - v_ci) / (v_r - v_ci)) ** 3
+                    wind_approx_power = wind_p_norm * wind.params.rated_kw
+                else:
+                    wind_approx_power = wind.params.rated_kw
+            else:
+                wind_approx_power = wind_exog.get("power_kw", 0.0)
+
+            wind_norm = wind_approx_power / self.MAX_CAPACITIES[f"wind_rated_{wind.name}"]
+            obs[f"{wind.name}_p"] = np.array([np.clip(wind_norm, 0.0, 1.0)], dtype=np.float32)
+
+        # 6. Loads
+        for load in self.all_loads:
+            load_exog = exog_step.get(load.name, {})
+            load_kw = load_exog.get("load_kw", 0.0)
+            load_norm = load_kw / self.MAX_CAPACITIES[f"load_max_{load.name}"]
+            obs[f"{load.name}_l"] = np.array([np.clip(load_norm, 0.0, 1.0)], dtype=np.float32)
 
         return obs
 
-    def _parse_action(self, action: np.ndarray) -> Dict[str, Any]:
-        """
-        Converts normalized action vector to environment action dictionary.
-
-        Args:
-            action: np.ndarray [8,] with values in defined ranges
-
-        Returns:
-            dict: Action dictionary for MicrogridEnv
-        """
-        action = np.clip(action, self.action_space.low, self.action_space.high)
-
+    def _parse_action(self, action: Dict[str, Union[np.ndarray, int]]) -> Dict[str, Any]:
+        """Converts the Dict action space into the MicrogridEnv action dictionary."""
         actions = {}
+        grid_name = self.grid.name
 
-        # [0-1] Battery: direction (-1 to 1) and magnitude (0 to 1)
-        bat_dir = float(action[0])  # -1 = charge, +1 = discharge
-        bat_mag = float(action[1])  # 0 to 1
+        # 1. Grid
+        grid_mode = int(action[f"{grid_name}_mode"])
+        grid_trade_val = action[f"{grid_name}_trade"]
+        grid_trade_mag = float(grid_trade_val[0]) if isinstance(grid_trade_val, np.ndarray) else float(grid_trade_val)
 
-        if abs(bat_dir) < 0.1:  # Dead zone for "off"
-            bat_setpoint = 0.0
-        elif bat_dir > 0:  # Discharge
-            bat_setpoint = bat_mag * self.battery_max_discharge_kw
-        else:  # Charge
-            bat_setpoint = -bat_mag * self.battery_max_charge_kw
+        if grid_mode == -1:
+            actions[grid_name] = "disconnect"
+        elif grid_mode == 1:
+            if grid_trade_mag > 0:
+                # Positive = sell/export
+                actions[grid_name] = -grid_trade_mag * self.grid.params.export_limit_kw
+            else:
+                # Negative = buy/import
+                actions[grid_name] = abs(grid_trade_mag) * self.grid.params.import_limit_kw
+        else:
+            actions[grid_name] = "connect"
 
-        actions["bat"] = {
-            "set_state": "ON" if abs(bat_setpoint) > 0.01 else "OFF",
-            "power_setpoint": bat_setpoint
-        }
+        # 2. Batteries
+        for bat in self.batteries:
+            bat_mode = int(action[f"{bat.name}_mode"])
+            bat_mag_val = action[f"{bat.name}_mag"]
+            bat_mag = float(bat_mag_val[0]) if isinstance(bat_mag_val, np.ndarray) else float(bat_mag_val)
 
-        # [2, 7] Diesel: on/off and setpoint
-        diesel_on = float(action[2]) > 0.5
-        diesel_sp = float(action[7]) * self.diesel_max_kw if diesel_on else 0.0
-        actions["diesel"] = {
-            "on": diesel_on,
-            "power_setpoint": diesel_sp
-        }
+            if bat_mode == 0:
+                bat_setpoint = 0.0
+            elif bat_mode > 0:  # Discharge
+                bat_setpoint = bat_mag * self.MAX_CAPACITIES[f"bat_dis_{bat.name}"]
+            else:  # Charge
+                bat_setpoint = -bat_mag * self.MAX_CAPACITIES[f"bat_chg_{bat.name}"]
 
-        # [3-4] Grid: mode and trade amount
-        grid_mode = float(action[3])
-        grid_trade = float(action[4])
+            actions[bat.name] = {
+                "set_state": "ON" if abs(bat_setpoint) > 0.01 else "OFF",
+                "power_setpoint": bat_setpoint
+            }
 
-        if grid_mode < -0.5:  # Island mode
-            actions["grid"] = "disconnect"
-        elif grid_mode > 0.5:  # Scheduled trade
-            if grid_trade > 0:  # Sell
-                actions["grid"] = -grid_trade * self.grid_max_export_kw
-            else:  # Buy
-                actions["grid"] = -grid_trade * self.grid_max_import_kw
-        else:  # Slack/connect mode
-            actions["grid"] = "connect"
+        # 3. Diesels
+        for d in self.diesels:
+            diesel_on = int(action[f"{d.name}_on"]) == 1
+            diesel_sp_val = action[f"{d.name}_sp"]
+            diesel_sp_mag = float(diesel_sp_val[0]) if isinstance(diesel_sp_val, np.ndarray) else float(diesel_sp_val)
+            diesel_sp = diesel_sp_mag * self.MAX_CAPACITIES[f"diesel_pmax_{d.name}"] if diesel_on else 0.0
 
-        # [5] PV connect/disconnect
-        actions["pv"] = "connect" if float(action[5]) > 0.5 else "disconnect"
+            actions[d.name] = {
+                "on": diesel_on,
+                "power_setpoint": diesel_sp
+            }
 
-        # [6] Wind connect/disconnect
-        actions["wind"] = "connect" if float(action[6]) > 0.5 else "disconnect"
+        # 4. Renewables
+        for pv in self.pv_gens:
+            pv_connect = int(action[f"{pv.name}_con"]) == 1
+            actions[pv.name] = "connect" if pv_connect else "disconnect"
+
+        for wind in self.wind_gens:
+            wind_connect = int(action[f"{wind.name}_con"]) == 1
+            actions[wind.name] = "connect" if wind_connect else "disconnect"
 
         return actions
 
+    # --- Gymnasium API Methods ---
     def _compute_reward(self, prev_step: int) -> float:
-        """
-        Computes reward based on operational costs and reliability.
-
-        Reward = w_cost * (-cost) + w_unmet * (-unmet) + w_curt * (-curtailment) + w_soc * (-soc_penalty)
-        """
-        df = self.env.get_results(as_dataframe=True)
-
-        if len(df) == 0 or prev_step >= len(df):
+        """Computes reward based on operational costs, reliability, and SOC balancing."""
+        if not self.env.history:
             return 0.0
 
-        # Get metrics for the last control interval
-        start_idx = max(0, prev_step)
-        end_idx = min(len(df), self.env.current_step)
+        df = self.env.get_results(as_dataframe=True)
+        start_idx = prev_step * self.steps_per_control
+        end_idx = self.env.current_step
 
-        if start_idx >= end_idx:
+        if start_idx >= len(df) or start_idx >= end_idx:
             return 0.0
 
         window = df.iloc[start_idx:end_idx]
 
-        # Cost (negative is good, we want to minimize expenses)
         step_cost = window["total_cashflow"].sum()
+        dt_hours = self.sim_dt / 60.0
+        step_unmet = window["unmet_load_kw"].sum() * dt_hours
+        step_curtailed = window["curtailed_gen_kw"].sum() * dt_hours
 
-        # Unmet energy (bad)
-        step_unmet = window["unmet_load_kw"].sum() * (self.sim_dt / 60.0)
-
-        # Curtailed energy (slightly bad, wasted renewable)
-        step_curtailed = window["curtailed_gen_kw"].sum() * (self.sim_dt / 60.0)
-
-        # SOC deviation from 0.5 (penalize extreme SOC)
-        soc_vals = []
-        for storage in self.env.storage:
-            if storage.name == "bat":
-                soc_vals = [storage.get_soc()]
+        soc_vals = [bat.get_soc() for bat in self.batteries]
         soc_penalty = np.mean([(s - 0.5)**2 for s in soc_vals]) if soc_vals else 0.0
 
-        # Compute weighted reward
         reward = (
             self.reward_weights["cost"] * step_cost +
-            self.reward_weights["unmet"] * step_unmet +
-            self.reward_weights["curtailment"] * step_curtailed +
-            self.reward_weights["soc_deviation"] * soc_penalty
+            -self.reward_weights["unmet"] * step_unmet +
+            -self.reward_weights["curtailment"] * step_curtailed +
+            -self.reward_weights["soc_deviation"] * soc_penalty
         )
 
         return float(reward)
 
-    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None) -> Tuple[np.ndarray, dict]:
-        """
-        Reset the environment to initial state.
-
-        Returns:
-            observation: Initial observation
-            info: Additional info dict
-        """
+    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None) -> Tuple[Dict[str, np.ndarray], dict]:
+        """Resets the environment and generates a new episode's worth of exogenous data."""
         super().reset(seed=seed)
 
         if seed is not None:
             np.random.seed(seed)
 
-        # Build fresh environment
-        self.env = self._build_microgrid()
         self.env.reset()
-
-        # Generate new exogenous data
         self.exog_list = self.data_builder.build_list()
-
+        self.env.total_simulation_steps = len(self.exog_list)
+        self.max_steps = self.env.total_simulation_steps // self.steps_per_control
         self.current_step = 0
 
-        # Get initial observation
         obs = self._get_observation(self.exog_list[0])
 
-        info = {"step": 0}
+        return obs, {"step": 0, "total_cost": 0.0}
 
-        return obs, info
-
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, dict]:
-        """
-        Take one step in the environment.
-
-        Args:
-            action: Action vector [8,]
-
-        Returns:
-            observation: Next observation
-            reward: Reward for this step
-            terminated: Whether episode ended naturally
-            truncated: Whether episode was cut off
-            info: Additional info
-        """
-        # Parse action
+    def step(self, action: Dict[str, Union[np.ndarray, int]]) -> Tuple[Dict[str, np.ndarray], float, bool, bool, dict]:
+        """Executes one control interval step."""
         env_action = self._parse_action(action)
-
-        # Store current step for reward calculation
-        prev_step = self.env.current_step
+        prev_control_step = self.current_step
 
         # Execute action for all sub-steps in this control interval
         for _ in range(self.steps_per_control):
-            if self.env.current_step >= len(self.exog_list):
+            sim_step = self.env.current_step
+            if sim_step >= len(self.exog_list):
                 break
-            exog = self.exog_list[self.env.current_step]
+            exog = self.exog_list[sim_step]
             self.env.step(actions=env_action, exogenous=exog)
 
         self.current_step += 1
 
-        # Compute reward
-        reward = self._compute_reward(prev_step)
+        reward = self._compute_reward(prev_control_step)
 
-        # Get next observation
         next_exog_idx = min(self.env.current_step, len(self.exog_list) - 1)
         obs = self._get_observation(self.exog_list[next_exog_idx])
 
-        # Check termination
         terminated = self.current_step >= self.max_steps
         truncated = False
 
-        # Info
-        info = {
-            "step": self.current_step,
-            "total_cost": self.env.get_results(as_dataframe=True)["total_cashflow"].sum() if self.env.history else 0.0
-        }
+        df = self.env.get_results(as_dataframe=True)
+        total_cost = df["total_cashflow"].sum() if not df.empty else 0.0
 
-        return obs, reward, terminated, truncated, info
+        return obs, reward, terminated, truncated, {"step": self.current_step, "total_cost": total_cost}
 
     def render(self):
-        """Render the environment (optional)."""
         if self.render_mode == "human":
-            print(f"Step: {self.current_step}/{self.max_steps}")
+            print(f"Control Step: {self.current_step}/{self.max_steps}")
 
     def close(self):
-        """Clean up resources."""
+        pass

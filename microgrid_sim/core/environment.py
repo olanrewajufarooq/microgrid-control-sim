@@ -260,9 +260,23 @@ class MicrogridEnv:
                 `.decide(hour, soc, exog)` method.
             exogenous_list (list): The *high-fidelity, per-simulation-step* list of exogenous data (e.g., length 1440).
         """
-        if len(exogenous_list) != self.total_simulation_steps:
-            raise ValueError(f"Exogenous list length ({len(exogenous_list)}) does not "
-                             f"match total simulation steps ({self.total_simulation_steps}).")
+        required = self.total_simulation_steps
+
+        if len(exogenous_list) < required:
+            raise ValueError(
+                f"Exogenous list too short ({len(exogenous_list)}) for "
+                f"{required} simulation steps at sim_dt={self.sim_dt} min."
+            )
+
+        # If it’s longer, slice instead of crashing (warn once)
+        if len(exogenous_list) > required:
+            if getattr(self, "_warned_exog_slice", False) is False:
+                print(
+                    f"[MicrogridEnv] Warning: exogenous_list longer than required "
+                    f"({len(exogenous_list)} > {required}); slicing to {required}."
+                )
+                self._warned_exog_slice = True
+            exogenous_list = exogenous_list[:required]
 
         self.reset()
 
