@@ -64,6 +64,7 @@ class PVParams:
     cell_temp_C: float = 25.0
     p_min_kw: float = 0.0
     p_max_kw: Optional[float] = None
+    maintenance_cost_per_kwh: float = 0.0
 
 
 class PVGenerator(BaseGenerator):
@@ -85,7 +86,9 @@ class PVGenerator(BaseGenerator):
                  derate: float = 0.9, p_min_kw: float = 0.0,
                  p_max_kw: Optional[float] = None,
                  temp_coeff_per_degC: float = -0.0045,
-                 cell_temp_C: float = 25.0):
+                 cell_temp_C: float = 25.0,
+                 maintenance_cost_per_kwh: float = 0.0,
+                 ):
         super().__init__(name)
         self.params = PVParams(
             capacity_kw=float(capacity_kw),
@@ -95,8 +98,13 @@ class PVGenerator(BaseGenerator):
             p_max_kw=float(p_max_kw) if p_max_kw is not None else float(capacity_kw),
             temp_coeff_per_degC=float(temp_coeff_per_degC),
             cell_temp_C=float(cell_temp_C),
+            maintenance_cost_per_kwh=float(maintenance_cost_per_kwh),
         )
         self._connected = True
+
+    @property
+    def dt_hours(self) -> float:
+        return self.params.time_step_minutes / 60.0
 
     def connect(self):
         self._connected = True
@@ -121,7 +129,10 @@ class PVGenerator(BaseGenerator):
         p = p_stc * temp_factor
         p = max(self.params.p_min_kw, min(self.params.p_max_kw, p))
         self._power_output = p
-        self._cost = 0.0
+
+        # O&M cost per generated kWh (NEGATIVE = expense)
+        e_kwh = max(0.0, p) * self.dt_hours
+        self._cost = -self.params.maintenance_cost_per_kwh * e_kwh
 
 
 # ============================================================
@@ -135,6 +146,7 @@ class WindParams:
     cut_in_ms: float = 3.0
     rated_ms: float = 12.0
     cut_out_ms: float = 25.0
+    maintenance_cost_per_kwh: float = 0.0
 
 class WindTurbine(BaseGenerator):
     """
@@ -148,12 +160,24 @@ class WindTurbine(BaseGenerator):
         P_r,                                 v_r ≤ v ≤ v_co
     """
 
-    def __init__(self, name: str, rated_kw: float, time_step_minutes: float,
-                 cut_in_ms: float = 3.0, rated_ms: float = 12.0, cut_out_ms: float = 25.0):
+    def __init__(self, name: str,
+                 rated_kw: float, time_step_minutes: float,
+                 cut_in_ms: float = 3.0,
+                 rated_ms: float = 12.0,
+                 cut_out_ms: float = 25.0,
+                 maintenance_cost_per_kwh: float = 0.0,
+                 ):
         super().__init__(name)
-        self.params = WindParams(float(rated_kw), float(time_step_minutes),
-                                 float(cut_in_ms), float(rated_ms), float(cut_out_ms))
+        self.params = WindParams(
+            float(rated_kw), float(time_step_minutes),
+            float(cut_in_ms), float(rated_ms), float(cut_out_ms),
+            float(maintenance_cost_per_kwh),
+            )
         self._connected = True
+
+    @property
+    def dt_hours(self) -> float:
+        return self.params.time_step_minutes / 60.0
 
     def connect(self):
         self._connected = True
@@ -180,7 +204,10 @@ class WindTurbine(BaseGenerator):
         else:
             p = self.params.rated_kw
         self._power_output = max(0.0, p)
-        self._cost = 0.0
+
+        # O&M cost per generated kWh (NEGATIVE = expense)
+        e_kwh = self._power_output * self.dt_hours
+        self._cost = -self.params.maintenance_cost_per_kwh * e_kwh
 
 
 # ============================================================
