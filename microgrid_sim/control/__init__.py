@@ -9,18 +9,13 @@ This package defines the "brains" of the EMS.
   "Rule" objects (e.g., BatteryRule, GridRule) that define
   a specific control strategy.
 - (Later) MDP/RL agents, etc.
+- RLController: Reinforcement Learning controller using PPO
 """
 
 from .ems_rule import RuleBasedEMS
-from .rules import (
-    BaseRule,
-    TimeSchedule,
-    SetpointSchedule,
-    BatteryRule,
-    DieselRule,
-    GridRule,
-    RenewableDisconnectRule
-)
+from .rl_controller import RLController
+from .rules import (BaseRule, BatteryRule, DieselRule, GridRule,
+                    RenewableDisconnectRule, SetpointSchedule, TimeSchedule)
 
 __all__ = [
     "RuleBasedEMS",
@@ -31,4 +26,5 @@ __all__ = [
     "DieselRule",
     "GridRule",
     "RenewableDisconnectRule",
+    "RLController",
 ]

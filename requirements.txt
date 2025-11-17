@@ -2,7 +2,7 @@
 numpy
 pandas
 matplotlib
-statsmodels
+gymnasium
 
 # For future control (we can add these later)
 # gym

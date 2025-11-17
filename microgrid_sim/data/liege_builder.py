@@ -47,6 +47,7 @@ class LiegeDataBuilder(BaseDataBuilder):
         super().__init__(total_hours, sim_dt_minutes, seed)
         self.load_path = os.path.join(folder_path, "miris_load.csv")
         self.pv_path = os.path.join(folder_path, "miris_pv.csv")
+        self.weather_path = os.path.join(folder_path, "weather_data.csv")
         self.min_pv = min_pv_power
         self.max_pv = max_pv_power
         self.min_load = min_load_power
@@ -81,12 +82,20 @@ class LiegeDataBuilder(BaseDataBuilder):
         df_pv_resampled = df_pv.resample(self.resample_str).mean()
         df_pv_resampled.rename(columns={'PV': 'pv_power'}, inplace=True)
 
+        # Load & Resample Weather (15-min)
+        # Load both WS10m and WS100m**
+        df_weather = pd.read_csv(self.weather_path, usecols=['Time', 'WS10m', 'WS100m'])
+        df_weather['Time'] = pd.to_datetime(df_weather['Time'])
+        df_weather = df_weather.set_index('Time')
+        df_weather_resampled = df_weather.resample(self.resample_str).interpolate(method='linear')
+
         # Align and Find Random Start
         # Convert all to UTC to be safe, then remove timezone info
         df_load_resampled.index = df_load_resampled.index.tz_convert('UTC').tz_localize(None)
         df_pv_resampled.index = df_pv_resampled.index.tz_convert('UTC').tz_localize(None)
+        df_weather_resampled.index = df_weather_resampled.index.tz_convert('UTC').tz_localize(None)
 
-        df_all = pd.concat([df_load_resampled, df_pv_resampled], axis=1)
+        df_all = pd.concat([df_load_resampled, df_pv_resampled, df_weather_resampled], axis=1)
         df_all = df_all.dropna() # Find the intersection of valid data
 
         possible_start_times = df_all.at_time('00:00').index
@@ -111,6 +120,11 @@ class LiegeDataBuilder(BaseDataBuilder):
 
         load_series = df_final['site_load'].values
         self._spec['site_load'] = {"load_kw": DataSeries.from_array(load_series)}
+
+        self._spec['wind'] = {
+            "wind_speed_ms": DataSeries.from_array(df_final['WS10m'].values),
+            "wind_speed_100m_ms": DataSeries.from_array(df_final['WS100m'].values)
+        }
 
         print("Note: Grid price data not included. Using synthetic prices.")
         self.add_synthetic_grid_prices('grid')

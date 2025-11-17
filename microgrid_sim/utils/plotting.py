@@ -22,13 +22,13 @@ plot_simulation(
 )
 """
 from __future__ import annotations
-import os
-from typing import List, Dict, Optional, Iterable, Tuple
 
-import numpy as np
+import os
+from typing import Dict, Iterable, List, Optional, Tuple
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker  # <-- Import the ticker module
-
+import numpy as np
 
 # --------------------------
 # Fixed, high-contrast palette
@@ -339,7 +339,8 @@ def _plot_costs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
                 plotted = True
     ax.set_title("Per-Step Cash Flow (NEG=expense, POS=revenue)")
     ax.set_ylabel("$ / step")
-    if plotted: ax.legend(ncol=4, loc='best')
+    if plotted:
+        ax.legend(ncol=4, loc='best')
 
 def _plot_cumulative_cash(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
     if "total_cashflow" in df.columns:
@@ -364,7 +365,8 @@ def _plot_unmet_curtailed(ax, df, color_map: Dict[str, str], x_axis_data: np.nda
         plotted = True
     ax.set_title("Security of Supply")
     ax.set_ylabel("kW (and 0/1)")
-    if plotted: ax.legend(ncol=3, loc='best')
+    if plotted:
+        ax.legend(ncol=3, loc='best')
 
 def _plot_actions(ax, actions: List[Dict[str, float]], color_map: Dict[str, str], x_axis_data: np.ndarray):
     keys = set()
@@ -383,7 +385,7 @@ def _plot_actions(ax, actions: List[Dict[str, float]], color_map: Dict[str, str]
             try:
                 series.append(float(v))
             except (ValueError, TypeError):
-                 series.append(np.nan)
+                series.append(np.nan)
         if not all(np.isnan(series)):
             ax.step(x_axis_data, series, where='post', label=k, color=color_map.get(k, "#000000"))
             plotted = True

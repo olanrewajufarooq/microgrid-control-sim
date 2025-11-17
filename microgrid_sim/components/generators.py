@@ -518,6 +518,13 @@ class ReplayGenerator(BaseGenerator):
         Steps the component by reading the 'power_kw' from
         the exogenous data and setting it as the output.
         """
+
+        action = kwargs.get("action")
+        if action == "disconnect":
+            self.disconnect()
+        elif action == "connect":
+            self.connect()
+        
         if not self._connected:
             self._power_output = 0.0
             self._cost = 0.0
