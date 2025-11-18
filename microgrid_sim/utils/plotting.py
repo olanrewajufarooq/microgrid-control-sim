@@ -469,3 +469,56 @@ def plot_simulation(
             _save_single(lambda ax: _plot_actions(ax, actions, color_map, x_axis_data), "actions")
 
     return {"fig": fig, "axes": list(axs), "out_dir": out_dir}
+
+# === Reward progression helper (SB3 Monitor CSV) ===
+def plot_reward_progress(
+    monitor_csv_path: str,
+    title: str = "Training Reward",
+    out_path: Optional[str] = None,
+    rolling: int = 10,
+):
+    """
+    Plot episodic rewards from a Stable-Baselines3 Monitor CSV.
+    - monitor_csv_path: path given to Monitor(..., filename=...)
+    - rolling: window for rolling mean overlay
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+
+    if not os.path.isfile(monitor_csv_path):
+        print(f"[plot_reward_progress] File not found: {monitor_csv_path}")
+        return None
+
+    # SB3 Monitor CSV starts with comment lines beginning '#'
+    with open(monitor_csv_path, "r") as f:
+        lines = [ln for ln in f.readlines() if not ln.startswith("#")]
+    if not lines:
+        print("[plot_reward_progress] No data rows in monitor CSV yet.")
+        return None
+
+    from io import StringIO
+    df = pd.read_csv(StringIO("".join(lines)))
+    # expected columns: r (episode reward), l (length), t (time seconds)
+    if "r" not in df.columns:
+        print("[plot_reward_progress] Column 'r' not found.")
+        return None
+
+    rewards = df["r"].values
+    episodes = np.arange(1, len(rewards) + 1)
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(episodes, rewards, label="Episode reward")
+    if rolling and len(rewards) >= rolling:
+        roll = pd.Series(rewards).rolling(rolling, min_periods=1).mean().values
+        ax.plot(episodes, roll, linestyle="--", label=f"Rolling mean ({rolling})")
+    ax.set_title(title)
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Reward")
+    ax.grid(True, linestyle=":", alpha=0.6)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    if out_path:
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        fig.savefig(out_path)
+    return fig, ax
+

@@ -6,17 +6,20 @@ FIXED: Corrects observation space, action parsing, and adapter integration.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Optional, Any, Union
-import numpy as np
-import gymnasium as gym
-from gymnasium import spaces
-from gymnasium.spaces.utils import flatten, unflatten, flatten_space
 
-from ..types import DataBuilder, EmsController
-from ..components.generators import PVGenerator, WindTurbine, FossilGenerator, GridIntertie
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import gymnasium as gym
+import numpy as np
+from gymnasium import spaces
+from gymnasium.spaces.utils import flatten, flatten_space, unflatten
+
+from ..components.generators import (FossilGenerator, GridIntertie,
+                                     PVGenerator, WindTurbine)
+from ..components.loads import BaseLoad, FactoryLoad, ResidentialLoad
 from ..components.storage import BatteryStorage
-from ..components.loads import ResidentialLoad, FactoryLoad, BaseLoad
 from ..core.environment import MicrogridEnv
+from ..types import DataBuilder, EmsController
 
 
 # --- Internal Adapter Class for MicrogridEnv.run() ---
@@ -95,6 +98,50 @@ class FlattenedMicrogridGymEnv(gym.Wrapper):
         return self.env.step(dict_action)
 
 
+class ActionProjectionWrapper(gym.Wrapper):
+    """
+    Projects a flat Box action into:
+      - one-hot for Discrete subspaces
+      - clipped values for Box subspaces
+    so that gymnasium.unflatten() can decode it safely.
+    """
+    def __init__(self, env: FlattenedMicrogridGymEnv):
+        super().__init__(env)
+        # Build slice indices for each subspace in the original Dict action space
+        self._slices = []
+        offset = 0
+        for key, subspace in self.env.env.action_space.spaces.items():
+            flat_sub = flatten_space(subspace)
+            size = int(np.prod(flat_sub.shape))
+            self._slices.append((key, subspace, slice(offset, offset + size)))
+            offset += size
+        self.action_space = env.action_space  # same flat Box
+
+    def _project_segment(self, subspace, vec):
+        if isinstance(subspace, spaces.Discrete):
+            # Make a one-hot of length n; argmax wins
+            one_hot = np.zeros(subspace.n, dtype=np.float32)
+            idx = int(np.argmax(vec))
+            one_hot[idx] = 1.0
+            return one_hot
+        elif isinstance(subspace, spaces.Box):
+            return np.clip(vec, subspace.low, subspace.high).astype(np.float32)
+        else:
+            # (Optional) handle MultiDiscrete, MultiBinary if you ever add them
+            return vec.astype(np.float32)
+
+    def step(self, action: np.ndarray):
+        action = np.asarray(action, dtype=np.float32).copy()
+        for key, subspace, sl in self._slices:
+            seg = action[sl]
+            proj = self._project_segment(subspace, seg)
+            action[sl] = proj
+        return self.env.step(action)
+
+    def reset(self, **kwargs):
+        return self.env.reset(**kwargs)
+
+
 class MicrogridGymEnv(gym.Env):
     """
     Gymnasium wrapper dynamically sized based on the components in the provided MicrogridEnv.
@@ -156,7 +203,7 @@ class MicrogridGymEnv(gym.Env):
 
         # Reward weights
         self.reward_weights = reward_weights or {
-            "cost": -1.0, "unmet": -10.0, "curtailment": -0.1, "soc_deviation": -0.5
+            "cost": 1.0, "unmet": 10.0, "curtailment": 0.1, "soc_deviation": 0.5
         }
 
         # --- 2. Dynamic Action and Observation Space Definition ---

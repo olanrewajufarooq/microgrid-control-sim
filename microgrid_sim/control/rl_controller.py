@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from typing import Any, Optional, Tuple, Dict, Union
 import numpy as np
+from stable_baselines3 import A2C, DQN, SAC, TD3
 
 try:
     from stable_baselines3 import PPO
@@ -21,6 +22,15 @@ except ImportError:
     HAS_SB3 = False
     print("Warning: stable-baselines3 not installed. RL features disabled.")
 
+
+ALGO_MAP = {
+    "PPO": PPO,
+    "A2C": A2C,
+    "SAC": SAC,
+    "TD3": TD3,
+    "DQN": DQN,
+}
+
 class RLController:
     """
     Reinforcement Learning controller for microgrid energy management using PPO.
@@ -29,6 +39,7 @@ class RLController:
     def __init__(
         self,
         env: Optional[Any] = None,
+        algo: str = "PPO",
         policy: str = "MultiInputPolicy",
         learning_rate: float = 3e-4,
         n_steps: int = 2048,
@@ -40,7 +51,7 @@ class RLController:
         ent_coef: float = 0.01,
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
-        verbose: int = 1,
+        verbose: int = 0,
         device: str = "auto"
     ):
         """Initialize the RL controller."""
@@ -48,14 +59,18 @@ class RLController:
             raise ImportError("stable-baselines3 is required. Install with: pip install stable-baselines3")
 
         self.env = env
-        self.model: Optional[PPO] = None
+        self.algo_name = algo.upper()
+        if self.algo_name not in ALGO_MAP:
+            raise ValueError(f"Unsupported algo '{algo}'. Use one of {list(ALGO_MAP.keys())}.")
+        self.model = None
         self.verbose = verbose
 
         self.config = {
             "policy": policy, "learning_rate": learning_rate, "n_steps": n_steps,
             "batch_size": batch_size, "n_epochs": n_epochs, "gamma": gamma,
             "gae_lambda": gae_lambda, "clip_range": clip_range, "ent_coef": ent_coef,
-            "vf_coef": vf_coef, "max_grad_norm": max_grad_norm, "device": device
+            "vf_coef": vf_coef, "max_grad_norm": max_grad_norm, "device": device,
+            "verbose": verbose,
         }
 
         if env is not None:
@@ -68,9 +83,11 @@ class RLController:
 
         # MultiInputPolicy is mandatory for Dict observation spaces
         if self.config['policy'] == 'MlpPolicy':
-             self.config['policy'] = 'MultiInputPolicy'
+            self.config['policy'] = 'MultiInputPolicy'
 
-        self.model = PPO(
+        algoCls = ALGO_MAP[self.algo_name]
+
+        self.model = algoCls(
             policy=self.config["policy"], env=self.env, learning_rate=self.config["learning_rate"],
             n_steps=self.config["n_steps"], batch_size=self.config["batch_size"], n_epochs=self.config["n_epochs"],
             gamma=self.config["gamma"], gae_lambda=self.config["gae_lambda"], clip_range=self.config["clip_range"],
@@ -79,7 +96,7 @@ class RLController:
         )
 
         if self.verbose >= 1:
-            print("PPO model initialized with hyperparameters:")
+            print(f"{self.algo_name} model initialized with hyperparameters:")
             for k, v in self.config.items():
                 print(f"  {k}: {v}")
 
@@ -98,14 +115,18 @@ class RLController:
 
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
-            logger = configure(log_dir, ["stdout", "csv", "tensorboard"])
+            logger = configure(log_dir, ["csv", "tensorboard"])
             self.model.set_logger(logger)
 
         callbacks = []
         if eval_env is not None:
             eval_callback = EvalCallback(
-                eval_env, best_model_save_path=log_dir if log_dir else "./logs/", log_path=log_dir if log_dir else "./logs/",
-                eval_freq=eval_freq, n_eval_episodes=n_eval_episodes, deterministic=True, render=False
+                eval_env,
+                best_model_save_path=log_dir if log_dir else "./logs/", log_path=log_dir if log_dir else "./logs/",
+                eval_freq=eval_freq,
+                n_eval_episodes=n_eval_episodes,
+                deterministic=True, render=False,
+                verbose=self.verbose,
             )
             callbacks.append(eval_callback)
 
@@ -114,7 +135,7 @@ class RLController:
         if self.verbose >= 1:
             print(f"\nStarting training for {total_timesteps} timesteps...")
 
-        self.model.learn(total_timesteps=total_timesteps, callback=callback_list, progress_bar=self.verbose >= 1)
+        self.model.learn(total_timesteps=total_timesteps, callback=callback_list, progress_bar=True)
 
         if self.verbose >= 1:
             print("Training complete!")
