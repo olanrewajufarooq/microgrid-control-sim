@@ -15,13 +15,12 @@ from stable_baselines3 import A2C, DQN, SAC, TD3
 
 try:
     from stable_baselines3 import PPO
-    from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
+    from stable_baselines3.common.callbacks import EvalCallback
     from stable_baselines3.common.logger import configure
     HAS_SB3 = True
 except ImportError:
     HAS_SB3 = False
     print("Warning: stable-baselines3 not installed. RL features disabled.")
-
 
 ALGO_MAP = {
     "PPO": PPO,
@@ -85,15 +84,32 @@ class RLController:
         if self.config['policy'] == 'MlpPolicy':
             self.config['policy'] = 'MultiInputPolicy'
 
-        algoCls = ALGO_MAP[self.algo_name]
+        algo_class = ALGO_MAP[self.algo_name]
 
-        self.model = algoCls(
-            policy=self.config["policy"], env=self.env, learning_rate=self.config["learning_rate"],
-            n_steps=self.config["n_steps"], batch_size=self.config["batch_size"], n_epochs=self.config["n_epochs"],
-            gamma=self.config["gamma"], gae_lambda=self.config["gae_lambda"], clip_range=self.config["clip_range"],
-            ent_coef=self.config["ent_coef"], vf_coef=self.config["vf_coef"], max_grad_norm=self.config["max_grad_norm"],
-            verbose=self.verbose, device=self.config["device"]
-        )
+        if self.algo_name in ["SAC", "TD3", "DQN"]:
+            self.model = algo_class(
+                policy=self.config["policy"], env=self.env, learning_rate=self.config["learning_rate"],
+                batch_size=self.config["batch_size"], gamma=self.config["gamma"],
+                verbose=self.verbose, device=self.config["device"]
+            )
+        elif self.algo_name == "A2C":
+            self.model = algo_class(
+                policy=self.config["policy"], env=self.env, learning_rate=self.config["learning_rate"],
+                n_steps=self.config["n_steps"], gamma=self.config["gamma"],
+                gae_lambda=self.config["gae_lambda"], ent_coef=self.config["ent_coef"],
+                vf_coef=self.config["vf_coef"], max_grad_norm=self.config["max_grad_norm"],
+                verbose=self.verbose, device=self.config["device"]
+            )
+        elif self.algo_name == "PPO":
+            self.model = algo_class(
+                policy=self.config["policy"], env=self.env, learning_rate=self.config["learning_rate"],
+                n_steps=self.config["n_steps"], batch_size=self.config["batch_size"], n_epochs=self.config["n_epochs"],
+                gamma=self.config["gamma"], gae_lambda=self.config["gae_lambda"], clip_range=self.config["clip_range"],
+                ent_coef=self.config["ent_coef"], vf_coef=self.config["vf_coef"], max_grad_norm=self.config["max_grad_norm"],
+                verbose=self.verbose, device=self.config["device"]
+            )
+        else:
+            raise ValueError(f"Algorithm '{self.algo_name}' is not supported.")
 
         if self.verbose >= 1:
             print(f"{self.algo_name} model initialized with hyperparameters:")
@@ -107,7 +123,6 @@ class RLController:
         eval_env: Optional[Any] = None,
         eval_freq: int = 5000,
         n_eval_episodes: int = 5,
-        callback: Optional[BaseCallback] = None
     ) -> "RLController":
         """Train the RL agent."""
         if self.model is None:
@@ -225,10 +240,3 @@ class RLController:
             print(f"\nEvaluation Results ({n_episodes} episodes): Mean Reward: {mean_reward:.2f} +/- {std_reward:.2f}")
 
         return mean_reward, std_reward
-
-class TrainingCallback(BaseCallback):
-    """Custom callback for monitoring training progress (for SB3)."""
-    def __init__(self, verbose: int = 0):
-        super().__init__(verbose)
-    def _on_step(self) -> bool: return True
-    def _on_rollout_end(self) -> None: pass

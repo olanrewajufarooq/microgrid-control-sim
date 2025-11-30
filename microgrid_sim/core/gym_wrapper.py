@@ -54,94 +54,6 @@ class RLAdapter(EmsController):
 
         return microgrid_action_dict
 
-
-# --- Internal Specialized Wrapper for SB3 PPO ---
-class FlattenedMicrogridGymEnv(gym.Wrapper):
-    """
-    Presents a flat Box to PPO. Internally:
-      - Discrete(k) keys consume k slots (logits) -> argmax -> integer in the original start..start+k-1
-      - Box(1,) keys consume 1 slot in [-1, 1] and are linearly mapped if needed downstream
-    """
-    def __init__(self, env: 'MicrogridGymEnv'):
-        super().__init__(env)
-        self._schema = []  # list of (key, kind, size, start)
-        total = 0
-        for k, sp in env.action_space.spaces.items():
-            if isinstance(sp, spaces.Discrete):
-                self._schema.append((k, "disc", sp.n, getattr(sp, "start", 0)))
-                total += sp.n
-            elif isinstance(sp, spaces.Box):
-                assert sp.shape == (1,), f"Only scalar Box actions supported for key {k}"
-                self._schema.append((k, "box", 1, None))
-                total += 1
-            else:
-                raise TypeError(f"Unsupported subspace for {k}: {type(sp)}")
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(total,), dtype=np.float32)
-        # observation_space stays the same as env (Dict)
-
-    def _unflatten_action(self, flat: np.ndarray):
-        flat = np.asarray(flat, dtype=np.float32).ravel()
-        out = {}
-        i = 0
-        for k, kind, size, start in self._schema:
-            if kind == "disc":
-                logits = flat[i:i+size]; i += size
-                cls = int(np.argmax(logits))
-                out[k] = (start or 0) + cls
-            else:
-                val = float(flat[i]); i += 1
-                out[k] = np.array([val], dtype=np.float32)
-        return out
-
-    def step(self, action: np.ndarray):
-        dict_action = self._unflatten_action(action)
-        return self.env.step(dict_action)
-
-
-class ActionProjectionWrapper(gym.Wrapper):
-    """
-    Projects a flat Box action into:
-      - one-hot for Discrete subspaces
-      - clipped values for Box subspaces
-    so that gymnasium.unflatten() can decode it safely.
-    """
-    def __init__(self, env: FlattenedMicrogridGymEnv):
-        super().__init__(env)
-        # Build slice indices for each subspace in the original Dict action space
-        self._slices = []
-        offset = 0
-        for key, subspace in self.env.env.action_space.spaces.items():
-            flat_sub = flatten_space(subspace)
-            size = int(np.prod(flat_sub.shape))
-            self._slices.append((key, subspace, slice(offset, offset + size)))
-            offset += size
-        self.action_space = env.action_space  # same flat Box
-
-    def _project_segment(self, subspace, vec):
-        if isinstance(subspace, spaces.Discrete):
-            # Make a one-hot of length n; argmax wins
-            one_hot = np.zeros(subspace.n, dtype=np.float32)
-            idx = int(np.argmax(vec))
-            one_hot[idx] = 1.0
-            return one_hot
-        elif isinstance(subspace, spaces.Box):
-            return np.clip(vec, subspace.low, subspace.high).astype(np.float32)
-        else:
-            # (Optional) handle MultiDiscrete, MultiBinary if you ever add them
-            return vec.astype(np.float32)
-
-    def step(self, action: np.ndarray):
-        action = np.asarray(action, dtype=np.float32).copy()
-        for key, subspace, sl in self._slices:
-            seg = action[sl]
-            proj = self._project_segment(subspace, seg)
-            action[sl] = proj
-        return self.env.step(action)
-
-    def reset(self, **kwargs):
-        return self.env.reset(**kwargs)
-
-
 class MicrogridGymEnv(gym.Env):
     """
     Gymnasium wrapper dynamically sized based on the components in the provided MicrogridEnv.
@@ -491,3 +403,91 @@ class MicrogridGymEnv(gym.Env):
 
     def close(self):
         pass
+
+
+class FlattenedMicrogridGymEnv(gym.Wrapper):
+    """
+    Presents a flat Box to PPO. Internally:
+      - Discrete(k) keys consume k slots (logits) -> argmax -> integer in the original start..start+k-1
+      - Box(1,) keys consume 1 slot in [-1, 1] and are linearly mapped if needed downstream
+    """
+    def __init__(self, env: 'MicrogridGymEnv'):
+        super().__init__(env)
+        self._schema = []  # list of (key, kind, size, start)
+        total = 0
+        for k, sp in env.action_space.spaces.items():
+            if isinstance(sp, spaces.Discrete):
+                self._schema.append((k, "disc", sp.n, getattr(sp, "start", 0)))
+                total += sp.n
+            elif isinstance(sp, spaces.Box):
+                assert sp.shape == (1,), f"Only scalar Box actions supported for key {k}"
+                self._schema.append((k, "box", 1, None))
+                total += 1
+            else:
+                raise TypeError(f"Unsupported subspace for {k}: {type(sp)}")
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(total,), dtype=np.float32)
+        # observation_space stays the same as env (Dict)
+
+    def _unflatten_action(self, flat: np.ndarray):
+        flat = np.asarray(flat, dtype=np.float32).ravel()
+        out = {}
+        i = 0
+        for k, kind, size, start in self._schema:
+            if kind == "disc":
+                logits = flat[i:i+size]; i += size
+                cls = int(np.argmax(logits))
+                out[k] = (start or 0) + cls
+            else:
+                val = float(flat[i]); i += 1
+                out[k] = np.array([val], dtype=np.float32)
+        return out
+
+    def step(self, action: np.ndarray):
+        dict_action = self._unflatten_action(action)
+        return self.env.step(dict_action)
+
+
+class ActionProjectionWrapper(gym.Wrapper):
+    """
+    Projects a flat Box action into:
+      - one-hot for Discrete subspaces
+      - clipped values for Box subspaces
+    so that gymnasium.unflatten() can decode it safely.
+    """
+    def __init__(self, env: FlattenedMicrogridGymEnv):
+        super().__init__(env)
+        # Build slice indices for each subspace in the original Dict action space
+        self._slices = []
+        offset = 0
+        for key, subspace in self.env.env.action_space.spaces.items():
+            flat_sub = flatten_space(subspace)
+            size = int(np.prod(flat_sub.shape))
+            self._slices.append((key, subspace, slice(offset, offset + size)))
+            offset += size
+        self.action_space = env.action_space  # same flat Box
+
+    def _project_segment(self, subspace, vec):
+        if isinstance(subspace, spaces.Discrete):
+            # Make a one-hot of length n; argmax wins
+            one_hot = np.zeros(subspace.n, dtype=np.float32)
+            idx = int(np.argmax(vec))
+            one_hot[idx] = 1.0
+            return one_hot
+        elif isinstance(subspace, spaces.Box):
+            return np.clip(vec, subspace.low, subspace.high).astype(np.float32)
+        else:
+            # (Optional) handle MultiDiscrete, MultiBinary if you ever add them
+            return vec.astype(np.float32)
+
+    def step(self, action: np.ndarray):
+        action = np.asarray(action, dtype=np.float32).copy()
+        for key, subspace, sl in self._slices:
+            seg = action[sl]
+            proj = self._project_segment(subspace, seg)
+            action[sl] = proj
+        return self.env.step(action)
+
+    def reset(self, **kwargs):
+        return self.env.reset(**kwargs)
+
+
