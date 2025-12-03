@@ -1,7 +1,7 @@
 """
 microgrid_sim/core/environment.py
 
-MicrogridEnv v2 — timeline & logging orchestrator that delegates
+MicrogridEnv v2 - timeline & logging orchestrator that delegates
 electrical bus balance to microgrid_sim.system.MicrogridSystem.
 
 Responsibilities
@@ -39,7 +39,7 @@ df = env.get_results()
 
 References
 ----------
-Bordons, C.; García-Torres, F.; Ridao, M. (2020).
+Bordons, C.; Garcia-Torres, F.; Ridao, M. (2020).
 Model Predictive Control of Microgrids. Springer.
 """
 
@@ -175,6 +175,12 @@ class MicrogridEnv:
             self.history[f"{comp.name}_cost"] = []
             if isinstance(comp, BaseStorage):
                 self.history[f"{comp.name}_soc"] = []
+            # log downtime if supported
+            try:
+                comp.get_downtime()
+                self.history[f"{comp.name}_downtime"] = []
+            except Exception:
+                pass
 
         # Aggregates
         for key in ["gen_total_kw", "load_total_kw", "storage_total_kw", "grid_slack_kw",
@@ -194,6 +200,11 @@ class MicrogridEnv:
             self.history[f"{comp.name}_cost"].append(comp.get_cost())
             if isinstance(comp, BaseStorage):
                 self.history[f"{comp.name}_soc"].append(comp.get_soc())
+            # downtime if available
+            try:
+                self.history[f"{comp.name}_downtime"].append(comp.get_downtime())
+            except Exception:
+                pass
 
         self.history["gen_total_kw"].append(summary["gen_kw"])
         self.history["load_total_kw"].append(summary["load_kw"])
@@ -268,7 +279,7 @@ class MicrogridEnv:
                 f"{required} simulation steps at sim_dt={self.sim_dt} min."
             )
 
-        # If it’s longer, slice instead of crashing (warn once)
+        # If it's longer, slice instead of crashing (warn once)
         if len(exogenous_list) > required:
             if getattr(self, "_warned_exog_slice", False) is False:
                 print(
@@ -287,12 +298,10 @@ class MicrogridEnv:
             # Check if we are at the start of a new control interval
             if k % self.steps_per_control_interval == 0:
 
-                # --- THIS IS THE FIX ---
                 # Get total hours *of the simulation*
                 total_hour = k // self.steps_per_control_interval
                 # Get the hour *of the day* (0-23)
                 hour_of_day = total_hour % 24
-                # --- END FIX ---
 
                 # Get battery SOC (assumes one battery named "bat")
                 soc = 0.5 # default

@@ -175,13 +175,13 @@ def _plot_generation(ax, df, gen_comps: List[str], stor_comps: List[str],
                         color=color_map.get(cname, "#000000"),
                         linestyle=style_cycle[i % len(style_cycle)], linewidth=2)
                 any_plotted = True
-    ax.set_title("Generation Power (kW) — positive portions only")
+    ax.set_title("Generation Power (kW) - positive portions only")
     ax.set_ylabel("kW")
     if any_plotted: ax.legend(ncol=4, loc='best')
 
-def _plot_consumption(ax, df, load_comps: List[str], stor_comps: List[str], grid_comps: List[str],
+def _plot_consumption(ax, df, load_comps: List[str], stor_comps: List[str],
                       color_map: Dict[str, str], x_axis_data: np.ndarray):
-    """Plots all negative power (loads, battery charge, grid import)."""
+    """Plots all negative power (loads, battery charge)."""
     any_plotted = False
     style_cycle = ['-', '--', ':', '-.']
 
@@ -197,17 +197,7 @@ def _plot_consumption(ax, df, load_comps: List[str], stor_comps: List[str], grid
                         linestyle=style_cycle[i % len(style_cycle)], linewidth=2)
                 any_plotted = True
 
-    # Plot Grid Import
-    for cname in grid_comps:
-        col = f"{cname}_power"
-        if col in df.columns:
-            g = df[col].values.astype(float)
-            grid_import_as_neg = -np.clip(g, 0, None)
-            if np.any(np.nan_to_num(grid_import_as_neg) < 0):
-                ax.plot(x_axis_data, grid_import_as_neg, label=f"{cname}_import",
-                         color=color_map.get(f"{cname}_import", "#000000"), linestyle='--', linewidth=2)
-                any_plotted = True
-    ax.set_title("Consumption Power (kW) — negative portions & grid imports")
+    ax.set_title("Consumption Power (kW) - negative portions")
     ax.set_ylabel("kW")
     if any_plotted: ax.legend(ncol=4, loc='best')
 
@@ -243,7 +233,7 @@ def _plot_socs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
                     linestyle=style_cycle[i % len(style_cycle)], linewidth=2)
             plotted = True
     ax.set_title("State of Charge (SOC)")
-    ax.set_ylabel("SOC (0–1)")
+    ax.set_ylabel("SOC (0-1)")
     if plotted: ax.legend(ncol=4, loc='best')
 
 def _plot_costs(ax, df, color_map: Dict[str, str], x_axis_data: np.ndarray):
@@ -339,6 +329,29 @@ def _plot_unmet_curtailed(ax, df, color_map: Dict[str, str], x_axis_data: np.nda
         if max_left == 0.0:
             ax.set_ylim(-0.1, 1.0)
 
+
+def _plot_component_downtime(ax, df, components: List[str], color_map: Dict[str, str],
+                             x_axis_data: np.ndarray):
+    """
+    Plots per-component downtime (0/1) using downtime columns produced by the simulation.
+    Expects columns named "<component>_downtime". If absent, the component is skipped.
+    """
+    plotted = False
+    style_cycle = ['-', '--', ':', '-.']
+    for i, cname in enumerate(sorted(components)):
+        col = f"{cname}_downtime"
+        if col in df.columns:
+            vals = df[col].values.astype(float)
+            ax.step(x_axis_data, vals, where="post", label=f"{cname} downtime",
+                    color=color_map.get(cname, "#000000"), linestyle=style_cycle[i % len(style_cycle)],
+                    linewidth=1.8)
+            plotted = True
+    ax.set_title("Component Downtime (0=on, 1=down)")
+    ax.set_ylabel("Downtime (0/1)")
+    ax.set_ylim(-0.1, 1.1)
+    if plotted:
+        ax.legend(ncol=4, loc="best")
+
 def _plot_actions(ax, actions: List[Dict[str, Union[float, Dict[str, float], str]]], color_map: Dict[str, str], x_axis_data: np.ndarray):
     """Plots the numeric setpoints and binary states from the action dictionary."""
     keys = set()
@@ -423,23 +436,25 @@ def plot_simulation(
 
     color_map = _build_color_map(df, actions)
 
-    nrows = 7 + (1 if actions is not None else 0)
+    nrows = 8 + (1 if actions is not None else 0)
     fig, axs = plt.subplots(nrows, 1, figsize=(14, 3*nrows), sharex=True)
     ax_idx = 0
 
     _plot_generation(axs[ax_idx], df, gens, storage, color_map, x_axis_data); ax_idx += 1
-    _plot_consumption(axs[ax_idx], df, loads, storage, grids, color_map, x_axis_data); ax_idx += 1
+    _plot_consumption(axs[ax_idx], df, loads, storage, color_map, x_axis_data); ax_idx += 1
     _plot_net_vs_grid(axs[ax_idx], df, grids, color_map, x_axis_data); ax_idx += 1
     _plot_socs(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
     _plot_costs(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
     _plot_cumulative_cash(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
     _plot_unmet_curtailed(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
+    downtime_targets = gens + storage + grids
+    _plot_component_downtime(axs[ax_idx], df, downtime_targets, color_map, x_axis_data); ax_idx += 1
     if actions is not None:
         _plot_actions(axs[ax_idx], actions, color_map, x_axis_data); ax_idx += 1
 
     _set_xaxis_time(axs, x_axis_data, x_label, total_hours)
 
-    fig.suptitle("Microgrid Simulation — Overview", y=0.995)
+    fig.suptitle("Microgrid Simulation - Overview", y=0.995)
     fig.tight_layout(rect=(0, 0, 1, 0.98))
 
     out_dir = None
@@ -459,12 +474,13 @@ def plot_simulation(
             plt.close(f)
 
         _save_single(lambda ax: _plot_generation(ax, df, gens, storage, color_map, x_axis_data), "generation")
-        _save_single(lambda ax: _plot_consumption(ax, df, loads, storage, grids, color_map, x_axis_data), "consumption")
+        _save_single(lambda ax: _plot_consumption(ax, df, loads, storage, color_map, x_axis_data), "consumption")
         _save_single(lambda ax: _plot_net_vs_grid(ax, df, grids, color_map, x_axis_data), "net_vs_grid")
         _save_single(lambda ax: _plot_socs(ax, df, color_map, x_axis_data), "soc")
         _save_single(lambda ax: _plot_costs(ax, df, color_map, x_axis_data), "costs")
         _save_single(lambda ax: _plot_cumulative_cash(ax, df, color_map, x_axis_data), "cumulative_cash")
         _save_single(lambda ax: _plot_unmet_curtailed(ax, df, color_map, x_axis_data), "security")
+        _save_single(lambda ax: _plot_component_downtime(ax, df, downtime_targets, color_map, x_axis_data), "component_downtime")
         if actions is not None:
             _save_single(lambda ax: _plot_actions(ax, actions, color_map, x_axis_data), "actions")
 

@@ -24,7 +24,8 @@ class BaseDataBuilder(DataBuilder, ABC):
         self.resample_str = f"{sim_dt_minutes}T"
         self.steps_per_hour = 60 // sim_dt_minutes
         self.total_steps = total_hours * self.steps_per_hour
-        self.rng = np.random.RandomState(seed)
+        # Use Generator API for reproducible randomness
+        self.rng = np.random.default_rng(seed)
 
         self._spec: Dict[str, Dict[str, DataSeries]] = {}
 

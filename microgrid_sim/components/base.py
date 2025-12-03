@@ -37,6 +37,7 @@ class BaseComponent(ABC):
     def __init__(self, name: str):
         self.name = name
         self._cost: float = 0.0  # NEG=expense, POS=revenue
+        self._downtime: float = 0.0  # 1.0 = down/offline, 0.0 = available
 
     @abstractmethod
     def step(self, t: int, **kwargs):
@@ -52,10 +53,15 @@ class BaseComponent(ABC):
         """Return last-step cash flow (NEG=expense, POS=revenue)."""
         return self._cost
 
+    def get_downtime(self) -> float:
+        """Return downtime flag for the last step (1.0=down/unavailable, 0.0=available)."""
+        return self._downtime
+
     @abstractmethod
     def reset(self):
         """Reset internal state and cost trackers."""
         self._cost = 0.0
+        self._downtime = 0.0
 
 
 class BaseGenerator(BaseComponent):

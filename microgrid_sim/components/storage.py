@@ -14,19 +14,21 @@ Sign conventions:
 
 References
 ----------
-Bordons, C.; García-Torres, F.; Ridao, M. (2020). Model Predictive Control of Microgrids. Springer.
+Bordons, C.; Garcia-Torres, F.; Ridao, M. (2020). Model Predictive Control of Microgrids. Springer.
 We follow a control-oriented SoC update commonly used in EMS/MPC:
-   E_{k+1} = E_k + η_c * P_ch * Δt  - (1/η_d) * P_dis * Δt,
+   E_{k+1} = E_k + eta_c * P_ch * Deltat  - (1/eta_d) * P_dis * Deltat,
 with P_ch >= 0, P_dis >= 0.
 Implemented under the sign convention P_batt > 0 (discharge), P_batt < 0 (charge).
 """
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal, Optional
+import random
+from typing import Literal
 
 from microgrid_sim.types import BatteryAction
 from .base import BaseStorage
+from .reliability import ReliabilityMixin, ReliabilityParams, FailureMode
 
 
 class PowerState(Enum):
@@ -48,7 +50,7 @@ class BatteryParams:
     degradation_cost_per_kwh: float = 0.0  # expense per kWh throughput (NEG cash flow)
 
 
-class BatteryStorage(BaseStorage):
+class BatteryStorage(BaseStorage, ReliabilityMixin):
     """
     Concrete battery with ON/OFF, power limits, SOC bounds, and efficiency.
 
@@ -61,7 +63,7 @@ class BatteryStorage(BaseStorage):
     Cash-flow model
     ---------------
     Only degradation is accounted here:
-        step_throughput_kWh = |P_actual| * Δt_hours
+        step_throughput_kWh = |P_actual| * Deltat_hours
         cash_flow = - degradation_cost_per_kwh * step_throughput_kWh
     NEGATIVE means you paid for degradation (expense).
     """
@@ -79,8 +81,11 @@ class BatteryStorage(BaseStorage):
         charge_efficiency: float = 0.95,
         discharge_efficiency: float = 0.95,
         degradation_cost_per_kwh: float = 0.0,
+        reliability: ReliabilityParams | None = None,
+        reliability_rng: random.Random | None = None,
     ):
         super().__init__(name, capacity_kwh=capacity_kwh, initial_soc=initial_soc)
+        ReliabilityMixin.__init__(self, reliability, reliability_rng)
         self.params = BatteryParams(
             capacity_kwh=float(capacity_kwh),
             time_step_minutes=float(time_step_minutes),
@@ -112,6 +117,7 @@ class BatteryStorage(BaseStorage):
         self._power_flow = 0.0
         self.state = PowerState.OFF
         self._cost = 0.0
+        self._reset_reliability()
 
     def step(self, t: int, **kwargs):
         """
@@ -128,6 +134,9 @@ class BatteryStorage(BaseStorage):
         action: BatteryAction | float | None = kwargs.get("action", None)
         set_state: Literal["ON", "OFF"] | None = None
         power_setpoint: float = 0.0
+        self._downtime = 0.0
+        exo = kwargs.get("exogenous", {}) or {}
+        self._update_reliability(exo, self.dt_hours)
 
         if isinstance(action, dict):
             set_state = action.get("set_state")
@@ -146,6 +155,13 @@ class BatteryStorage(BaseStorage):
         if self.state is PowerState.OFF:
             self._power_flow = 0.0
             self._cost = 0.0
+            return
+
+        # Reliability major outage -> force offline
+        if self.reliability_state.mode is FailureMode.MAJOR:
+            self._power_flow = 0.0
+            self._cost = self._reliability_cost(self.dt_hours)
+            self._downtime = 1.0
             return
 
         # Clamp power by hardware limits
@@ -178,9 +194,13 @@ class BatteryStorage(BaseStorage):
             delta_soc = (p_actual_mag * eta_c) * dt / cap
             soc = min(self.params.max_soc, soc + delta_soc)
 
+        p_actual = self._reliability_derate(p_actual)
+
         self._power_flow = p_actual
         self._soc = soc
 
         # Degradation cash flow (NEG=expense). Throughput in kWh this step:
         throughput_kwh = abs(self._power_flow) * dt
         self._cost = - self.params.degradation_cost_per_kwh * throughput_kwh
+        self._cost += self._reliability_cost(self.dt_hours)
+        self._downtime = max(self._downtime, self._reliability_downtime_flag())
