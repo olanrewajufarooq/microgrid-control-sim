@@ -87,9 +87,9 @@ def _find_components(df_cols: List[str]) -> Tuple[List[str], List[str], List[str
     """
     unique_names = set()
     for col in df_cols:
-        if col.endswith(("_power", "_cost", "_soc")):
-            name = col.rsplit('_', 1)[0] if col.endswith("_soc") else col.rsplit('_', 1)[0]
-            if name.endswith("power") or name.endswith("cost"): continue
+        if col.endswith(("_power", "_cost", "_soc", "_downtime")):
+            name = col.rsplit('_', 1)[0]
+            if name.endswith(("power", "cost", "downtime")): continue
             unique_names.add(name)
 
     gens, storage, loads, grids = [], [], [], []
@@ -379,9 +379,12 @@ def _plot_actions(ax, actions: List[Dict[str, Union[float, Dict[str, float], str
 
             elif isinstance(v, str): # Grid/Renewable string action ("connect", "disconnect")
                 is_discrete_state = True
-                if v.lower() in ("disconnect", "off"): series.append(0.0)
-                elif v.lower() in ("connect", "on"): series.append(1.0)
-                else: series.append(np.nan)
+                if v.lower() in ("disconnect", "off"):
+                    series.append(0.0)
+                elif v.lower() in ("connect", "on"):
+                    series.append(1.0)
+                else:
+                    series.append(np.nan)
                 continue
 
             try:
@@ -440,17 +443,34 @@ def plot_simulation(
     fig, axs = plt.subplots(nrows, 1, figsize=(14, 3*nrows), sharex=True)
     ax_idx = 0
 
-    _plot_generation(axs[ax_idx], df, gens, storage, color_map, x_axis_data); ax_idx += 1
-    _plot_consumption(axs[ax_idx], df, loads, storage, color_map, x_axis_data); ax_idx += 1
-    _plot_net_vs_grid(axs[ax_idx], df, grids, color_map, x_axis_data); ax_idx += 1
-    _plot_socs(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
-    _plot_costs(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
-    _plot_cumulative_cash(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
-    _plot_unmet_curtailed(axs[ax_idx], df, color_map, x_axis_data); ax_idx += 1
+    _plot_generation(axs[ax_idx], df, gens, storage, color_map, x_axis_data)
+    ax_idx += 1
+
+    _plot_consumption(axs[ax_idx], df, loads, storage, color_map, x_axis_data)
+    ax_idx += 1
+
+    _plot_net_vs_grid(axs[ax_idx], df, grids, color_map, x_axis_data)
+    ax_idx += 1
+
+    _plot_socs(axs[ax_idx], df, color_map, x_axis_data)
+    ax_idx += 1
+
+    _plot_costs(axs[ax_idx], df, color_map, x_axis_data)
+    ax_idx += 1
+
+    _plot_cumulative_cash(axs[ax_idx], df, color_map, x_axis_data)
+    ax_idx += 1
+
+    _plot_unmet_curtailed(axs[ax_idx], df, color_map, x_axis_data)
+    ax_idx += 1
+
     downtime_targets = gens + storage + grids
-    _plot_component_downtime(axs[ax_idx], df, downtime_targets, color_map, x_axis_data); ax_idx += 1
+    _plot_component_downtime(axs[ax_idx], df, downtime_targets, color_map, x_axis_data)
+    ax_idx += 1
+
     if actions is not None:
-        _plot_actions(axs[ax_idx], actions, color_map, x_axis_data); ax_idx += 1
+        _plot_actions(axs[ax_idx], actions, color_map, x_axis_data)
+        ax_idx += 1
 
     _set_xaxis_time(axs, x_axis_data, x_label, total_hours)
 
