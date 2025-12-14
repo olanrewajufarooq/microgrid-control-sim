@@ -45,6 +45,9 @@ Model Predictive Control of Microgrids. Springer.
 
 from __future__ import annotations
 from typing import Dict, List, Optional, Any, Protocol
+import random
+
+import numpy as np
 
 try:
     import pandas as pd
@@ -221,8 +224,30 @@ class MicrogridEnv:
 
     # --- Simulation Loop ---
 
-    def reset(self):
+    def _apply_seed(self, seed: int):
+        """Seed python/numpy and per-component RNGs for reproducibility."""
+        random.seed(seed)
+        try:
+            np.random.seed(seed)
+        except Exception:
+            pass
+
+        comp_order: List[BaseComponent] = [*self.generators, *self.storage, *self.loads]
+        if self.grid_component and self.grid_component not in comp_order:
+            comp_order.append(self.grid_component)
+
+        for idx, comp in enumerate(comp_order):
+            try:
+                if hasattr(comp, "set_seed"):
+                    comp.set_seed(seed + idx)
+            except Exception:
+                continue
+
+    def reset(self, seed: Optional[int] = None):
         """Resets all components and clears the simulation history."""
+        if seed is not None:
+            self._apply_seed(seed)
+
         self.current_step = 0
         for comp in self.generators + self.storage + self.loads:
             comp.reset()
@@ -258,7 +283,7 @@ class MicrogridEnv:
         self._log_step(summary)
         self.current_step += 1
 
-    def run(self, controller: EmsController, exogenous_list: List[Dict[str, Any]]):
+    def run(self, controller: EmsController, exogenous_list: List[Dict[str, Any]], seed: Optional[int] = None):
         """
         Runs the full simulation using a high-level controller.
 
@@ -270,6 +295,11 @@ class MicrogridEnv:
             controller (EmsController): An object with a
                 `.decide(hour, soc, exog)` method.
             exogenous_list (list): The *high-fidelity, per-simulation-step* list of exogenous data (e.g., length 1440).
+        Args:
+            controller (EmsController): An object with a
+                `.decide(hour, soc, exog)` method.
+            exogenous_list (list): The *high-fidelity, per-simulation-step* list of exogenous data (e.g., length 1440).
+            seed (int, optional): If provided, seeds all RNGs before running for reproducibility.
         """
         required = self.total_simulation_steps
 
@@ -289,7 +319,7 @@ class MicrogridEnv:
                 self._warned_exog_slice = True
             exogenous_list = exogenous_list[:required]
 
-        self.reset()
+        self.reset(seed=seed)
 
         current_ems_action = {}
 

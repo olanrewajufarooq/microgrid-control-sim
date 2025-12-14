@@ -134,7 +134,6 @@ class BatteryStorage(BaseStorage, ReliabilityMixin):
         action: BatteryAction | float | None = kwargs.get("action", None)
         set_state: Literal["ON", "OFF"] | None = None
         power_setpoint: float = 0.0
-        self._downtime = 0.0
         exo = kwargs.get("exogenous", {}) or {}
         self._update_reliability(exo, self.dt_hours)
 
@@ -161,7 +160,6 @@ class BatteryStorage(BaseStorage, ReliabilityMixin):
         if self.reliability_state.mode is FailureMode.MAJOR:
             self._power_flow = 0.0
             self._cost = self._reliability_cost(self.dt_hours)
-            self._downtime = 1.0
             return
 
         # Clamp power by hardware limits
@@ -203,4 +201,4 @@ class BatteryStorage(BaseStorage, ReliabilityMixin):
         throughput_kwh = abs(self._power_flow) * dt
         self._cost = - self.params.degradation_cost_per_kwh * throughput_kwh
         self._cost += self._reliability_cost(self.dt_hours)
-        self._downtime = max(self._downtime, self._reliability_downtime_flag())
+        self._downtime = self._reliability_downtime_flag()

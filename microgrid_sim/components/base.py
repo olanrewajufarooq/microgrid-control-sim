@@ -57,6 +57,22 @@ class BaseComponent(ABC):
         """Return downtime flag for the last step (1.0=down/unavailable, 0.0=available)."""
         return self._downtime
 
+    def set_seed(self, seed: int):
+        """
+        Optional hook for deterministic behavior.
+        Reseeds any internal random generators if present.
+        """
+        try:
+            if hasattr(self, "_rng") and hasattr(self._rng, "seed"):
+                self._rng.seed(seed)
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "_reliability_rng") and hasattr(self._reliability_rng, "seed"):
+                self._reliability_rng.seed(seed)
+        except Exception:
+            pass
+
     @abstractmethod
     def reset(self):
         """Reset internal state and cost trackers."""

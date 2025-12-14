@@ -8,6 +8,7 @@ FIXED: Corrects observation space, action parsing, and adapter integration.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple, Union
+import random
 
 import gymnasium as gym
 import numpy as np
@@ -358,8 +359,14 @@ class MicrogridGymEnv(gym.Env):
 
         if seed is not None:
             np.random.seed(seed)
+            random.seed(seed)
+            if hasattr(self.data_builder, "set_seed"):
+                try:
+                    self.data_builder.set_seed(seed)
+                except Exception:
+                    pass
 
-        self.env.reset()
+        self.env.reset(seed=seed)
         self.exog_list = self.data_builder.build_list()
         self.env.total_simulation_steps = len(self.exog_list)
         self.max_steps = self.env.total_simulation_steps // self.steps_per_control

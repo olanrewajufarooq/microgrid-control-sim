@@ -33,6 +33,10 @@ class BaseDataBuilder(DataBuilder, ABC):
         self.hourly_x = np.arange(self.total_hours + 1)
         self.minute_x = np.linspace(0, self.total_hours, self.total_steps, endpoint=False)
 
+    def set_seed(self, seed: int):
+        """Reset the builder RNG for reproducible data generation."""
+        self.rng = np.random.default_rng(seed)
+
     @abstractmethod
     def load_data(self) -> None:
         """

@@ -55,7 +55,8 @@ class _BaseLoadProfile(BaseLoad):
         peak_hour_multipliers: Optional[Dict[int, float]] = None,
                  month_multipliers: Optional[Dict[int, float]] = None,
                  special_day_multipliers: Optional[Dict[str, float]] = None,
-                 start_date: Optional[datetime.date] = None):
+                 start_date: Optional[datetime.date] = None,
+                 seed: Optional[int] = None):
         """
         Args:
             name (str): Name of the component.
@@ -72,12 +73,13 @@ class _BaseLoadProfile(BaseLoad):
             month_multipliers (dict[int -> float]): Optional scaler per month (1-12) for seasonal effects.
             special_day_multipliers (dict["MM-DD" -> float]): Optional scaler for specific calendar dates (e.g., holidays).
             start_date (datetime.date): Optional simulation start date; if None, randomly picked in the year.
+            seed (int): Optional RNG seed for reproducible profiles and dates.
         """
         super().__init__(name)
         self.data_driven = data_driven
-        self._rng = random.Random()
-        chosen_date = start_date or (datetime.date(2024, 1, 1) + datetime.timedelta(days=self._rng.randint(0, 364)))
-        self._start_datetime = datetime.datetime.combine(chosen_date, datetime.time())
+        self._start_date_input = start_date
+        self._rng = random.Random(seed)
+        self._start_datetime = self._compute_start_datetime()
 
         # These are used for the synthetic profile
         self.base_kw = float(base_kw)
@@ -106,6 +108,20 @@ class _BaseLoadProfile(BaseLoad):
                 continue
 
         self._t = 0 # Internal step counter (for synthetic profile)
+
+    def _compute_start_datetime(self) -> datetime.datetime:
+        chosen_date = self._start_date_input or (
+            datetime.date(2024, 1, 1) + datetime.timedelta(days=self._rng.randint(0, 364))
+        )
+        return datetime.datetime.combine(chosen_date, datetime.time())
+
+    def set_seed(self, seed: int):
+        super().set_seed(seed)
+        try:
+            self._rng.seed(seed)
+            self._start_datetime = self._compute_start_datetime()
+        except Exception:
+            pass
 
     def _hour_index(self, t: int) -> int:
         """Gets the 0-23 hour index for the synthetic profile."""
