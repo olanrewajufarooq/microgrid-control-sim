@@ -1,0 +1,1028 @@
+%% bare_jrnl_transmag.tex
+%% V1.4b
+%% 2015/08/26
+%% by Michael Shell
+%% see http://www.michaelshell.org/
+%% for current contact information.
+%%
+%% This is a skeleton file demonstrating the use of IEEEtran.cls
+%% (requires IEEEtran.cls version 1.8b or later) with an IEEE
+%% Transactions on Magnetics journal paper.
+%%
+%% Support sites:
+%% http://www.michaelshell.org/tex/ieeetran/
+%% http://www.ctan.org/pkg/ieeetran
+%% and
+%% http://www.ieee.org/
+
+%%*************************************************************************
+%% Legal Notice:
+%% This code is offered as-is without any warranty either expressed or
+%% implied; without even the implied warranty of MERCHANTABILITY or
+%% FITNESS FOR A PARTICULAR PURPOSE!
+%% User assumes all risk.
+%% In no event shall the IEEE or any contributor to this code be liable for
+%% any damages or losses, including, but not limited to, incidental,
+%% consequential, or any other damages, resulting from the use or misuse
+%% of any information contained here.
+%%
+%% All comments are the opinions of their respective authors and are not
+%% necessarily endorsed by the IEEE.
+%%
+%% This work is distributed under the LaTeX Project Public License (LPPL)
+%% ( http://www.latex-project.org/ ) version 1.3, and may be freely used,
+%% distributed and modified. A copy of the LPPL, version 1.3, is included
+%% in the base LaTeX documentation of all distributions of LaTeX released
+%% 2003/12/01 or later.
+%% Retain all contribution notices and credits.
+%% ** Modified files should be clearly indicated as such, including  **
+%% ** renaming them and changing author support contact information. **
+%%*************************************************************************
+
+
+% *** Authors should verify (and, if needed, correct) their LaTeX system  ***
+% *** with the testflow diagnostic prior to trusting their LaTeX platform ***
+% *** with production work. The IEEE's font choices and paper sizes can   ***
+% *** trigger bugs that do not appear when using other class files.       ***                          ***
+% The testflow support page is at:
+% http://www.michaelshell.org/tex/testflow/
+
+
+
+\documentclass[journal,transmag]{IEEEtran}
+
+\usepackage{etoolbox}
+
+% Enable first-line indentation after section headers
+\makeatletter
+\patchcmd{\@startsection}
+  {\@afterindentfalse}
+  {\@afterindenttrue}
+  {}{}
+\makeatother
+
+% Remove paragraph spacing globally
+\setlength{\parskip}{0pt}
+\setlength{\parindent}{1em}
+\usepackage[english]{babel}
+\usepackage{microtype}
+
+% \documentclass[journal,transmag, 11pt]{IEEEtran}
+%
+% If IEEEtran.cls has not been installed into the LaTeX system files,
+% manually specify the path to it like:
+% \documentclass[journal]{../sty/IEEEtran}
+
+
+
+
+
+% Some very useful LaTeX packages include:
+% (uncomment the ones you want to load)
+
+
+% *** MISC UTILITY PACKAGES ***
+%
+%\usepackage{ifpdf}
+% Heiko Oberdiek's ifpdf.sty is very useful if you need conditional
+% compilation based on whether the output is pdf or dvi.
+% usage:
+% \ifpdf
+%   % pdf code
+% \else
+%   % dvi code
+% \fi
+% The latest version of ifpdf.sty can be obtained from:
+% http://www.ctan.org/pkg/ifpdf
+% Also, note that IEEEtran.cls V1.7 and later provides a builtin
+% \ifCLASSINFOpdf conditional that works the same way.
+% When switching from latex to pdflatex and vice-versa, the compiler may
+% have to be run twice to clear warning/error messages.
+
+
+
+% \usepackage[margin=1in]{geometry}
+
+
+% *** CITATION PACKAGES ***
+%
+\usepackage{cite}
+% cite.sty was written by Donald Arseneau
+% V1.6 and later of IEEEtran pre-defines the format of the cite.sty package
+% \cite{} output to follow that of the IEEE. Loading the cite package will
+% result in citation numbers being automatically sorted and properly
+% "compressed/ranged". e.g., [1], [9], [2], [7], [5], [6] without using
+% cite.sty will become [1], [2], [5]--[7], [9] using cite.sty. cite.sty's
+% \cite will automatically add leading space, if needed. Use cite.sty's
+% noadjust option (cite.sty V3.8 and later) if you want to turn this off
+% such as if a citation ever needs to be enclosed in parenthesis.
+% cite.sty is already installed on most LaTeX systems. Be sure and use
+% version 5.0 (2009-03-20) and later if using hyperref.sty.
+% The latest version can be obtained at:
+% http://www.ctan.org/pkg/cite
+% The documentation is contained in the cite.sty file itself.
+
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd{\@startsection}
+  {\@afterindenttrue}
+  {\@afterindentfalse}
+  {}{}
+
+\usepackage{hyperref}
+
+
+% *** GRAPHICS RELATED PACKAGES ***
+
+\ifCLASSINFOpdf
+  \usepackage[pdftex]{graphicx}
+  % declare the path(s) where your graphic files are
+  \graphicspath{{../Images/}}
+  % and their extensions so you won't have to specify these with
+  % every instance of \includegraphics
+  % \DeclareGraphicsExtensions{.pdf,.jpeg,.png}
+\else
+  % or other class option (dvipsone, dvipdf, if not using dvips). graphicx
+  % will default to the driver specified in the system graphics.cfg if no
+  % driver is specified.
+  % \usepackage[dvips]{graphicx}
+  % declare the path(s) where your graphic files are
+  % \graphicspath{{../eps/}}
+  % and their extensions so you won't have to specify these with
+  % every instance of \includegraphics
+  % \DeclareGraphicsExtensions{.eps}
+\fi
+% graphicx was written by David Carlisle and Sebastian Rahtz. It is
+% required if you want graphics, photos, etc. graphicx.sty is already
+% installed on most LaTeX systems. The latest version and documentation
+% can be obtained at:
+% http://www.ctan.org/pkg/graphicx
+% Another good source of documentation is "Using Imported Graphics in
+% LaTeX2e" by Keith Reckdahl which can be found at:
+% http://www.ctan.org/pkg/epslatex
+%
+% latex, and pdflatex in dvi mode, support graphics in encapsulated
+% postscript (.eps) format. pdflatex in pdf mode supports graphics
+% in .pdf, .jpeg, .png and .mps (metapost) formats. Users should ensure
+% that all non-photo figures use a vector format (.eps, .pdf, .mps) and
+% not a bitmapped formats (.jpeg, .png). The IEEE frowns on bitmapped formats
+% which can result in "jaggedy"/blurry rendering of lines and letters as
+% well as large increases in file sizes.
+%
+% You can find documentation about the pdfTeX application at:
+% http://www.tug.org/applications/pdftex
+
+
+
+
+% *** MATH PACKAGES ***
+%
+\usepackage{amsmath, amssymb}
+% A popular package from the American Mathematical Society that provides
+% many useful and powerful commands for dealing with mathematics.
+%
+% Note that the amsmath package sets \interdisplaylinepenalty to 10000
+% thus preventing page breaks from occurring within multiline equations. Use:
+%\interdisplaylinepenalty=2500
+% after loading amsmath to restore such page breaks as IEEEtran.cls normally
+% does. amsmath.sty is already installed on most LaTeX systems. The latest
+% version and documentation can be obtained at:
+% http://www.ctan.org/pkg/amsmath
+
+
+
+
+
+% *** SPECIALIZED LIST PACKAGES ***
+%
+% \usepackage{algorithmic}
+% algorithmic.sty was written by Peter Williams and Rogerio Brito.
+% This package provides an algorithmic environment fo describing algorithms.
+% You can use the algorithmic environment in-text or within a figure
+% environment to provide for a floating algorithm. Do NOT use the algorithm
+% floating environment provided by algorithm.sty (by the same authors) or
+% algorithm2e.sty (by Christophe Fiorio) as the IEEE does not use dedicated
+% algorithm float types and packages that provide these will not provide
+% correct IEEE style captions. The latest version and documentation of
+% algorithmic.sty can be obtained at:
+% http://www.ctan.org/pkg/algorithms
+% Also of interest may be the (relatively newer and more customizable)
+% algorithmicx.sty package by Szasz Janos:
+% http://www.ctan.org/pkg/algorithmicx
+
+
+
+
+% *** ALIGNMENT PACKAGES ***
+%
+\usepackage{array}
+% Frank Mittelbach's and David Carlisle's array.sty patches and improves
+% the standard LaTeX2e array and tabular environments to provide better
+% appearance and additional user controls. As the default LaTeX2e table
+% generation code is lacking to the point of almost being broken with
+% respect to the quality of the end results, all users are strongly
+% advised to use an enhanced (at the very least that provided by array.sty)
+% set of table tools. array.sty is already installed on most systems. The
+% latest version and documentation can be obtained at:
+% http://www.ctan.org/pkg/array
+
+
+% IEEEtran contains the IEEEeqnarray family of commands that can be used to
+% generate multiline equations as well as matrices, tables, etc., of high
+% quality.
+
+
+
+
+% *** SUBFIGURE PACKAGES ***
+\ifCLASSOPTIONcompsoc
+ \usepackage[caption=false,font=normalsize,labelfont=sf,textfont=sf]{subfig}
+\else
+ \usepackage[caption=false,font=footnotesize]{subfig}
+\fi
+% subfig.sty, written by Steven Douglas Cochran, is the modern replacement
+% for subfigure.sty, the latter of which is no longer maintained and is
+% incompatible with some LaTeX packages including fixltx2e. However,
+% subfig.sty requires and automatically loads Axel Sommerfeldt's caption.sty
+% which will override IEEEtran.cls' handling of captions and this will result
+% in non-IEEE style figure/table captions. To prevent this problem, be sure
+% and invoke subfig.sty's "caption=false" package option (available since
+% subfig.sty version 1.3, 2005/06/28) as this is will preserve IEEEtran.cls
+% handling of captions.
+% Note that the Computer Society format requires a larger sans serif font
+% than the serif footnote size font used in traditional IEEE formatting
+% and thus the need to invoke different subfig.sty package options depending
+% on whether compsoc mode has been enabled.
+%
+% The latest version and documentation of subfig.sty can be obtained at:
+% http://www.ctan.org/pkg/subfig
+
+
+
+% *** FLOAT PACKAGES ***
+%
+%\usepackage{fixltx2e}
+% fixltx2e, the successor to the earlier fix2col.sty, was written by
+% Frank Mittelbach and David Carlisle. This package corrects a few problems
+% in the LaTeX2e kernel, the most notable of which is that in current
+% LaTeX2e releases, the ordering of single and double column floats is not
+% guaranteed to be preserved. Thus, an unpatched LaTeX2e can allow a
+% single column figure to be placed prior to an earlier double column
+% figure.
+% Be aware that LaTeX2e kernels dated 2015 and later have fixltx2e.sty's
+% corrections already built into the system in which case a warning will
+% be issued if an attempt is made to load fixltx2e.sty as it is no longer
+% needed.
+% The latest version and documentation can be found at:
+% http://www.ctan.org/pkg/fixltx2e
+
+
+%\usepackage{stfloats}
+% stfloats.sty was written by Sigitas Tolusis. This package gives LaTeX2e
+% the ability to do double column floats at the bottom of the page as well
+% as the top. (e.g., "\begin{figure*}[!b]" is not normally possible in
+% LaTeX2e). It also provides a command:
+%\fnbelowfloat
+% to enable the placement of footnotes below bottom floats (the standard
+% LaTeX2e kernel puts them above bottom floats). This is an invasive package
+% which rewrites many portions of the LaTeX2e float routines. It may not work
+% with other packages that modify the LaTeX2e float routines. The latest
+% version and documentation can be obtained at:
+% http://www.ctan.org/pkg/stfloats
+% Do not use the stfloats baselinefloat ability as the IEEE does not allow
+% \baselineskip to stretch. Authors submitting work to the IEEE should note
+% that the IEEE rarely uses double column equations and that authors should try
+% to avoid such use. Do not be tempted to use the cuted.sty or midfloat.sty
+% packages (also by Sigitas Tolusis) as the IEEE does not format its papers in
+% such ways.
+% Do not attempt to use stfloats with fixltx2e as they are incompatible.
+% Instead, use Morten Hogholm'a dblfloatfix which combines the features
+% of both fixltx2e and stfloats:
+%
+% \usepackage{dblfloatfix}
+% The latest version can be found at:
+% http://www.ctan.org/pkg/dblfloatfix
+
+
+
+
+%\ifCLASSOPTIONcaptionsoff
+%  \usepackage[nomarkers]{endfloat}
+% \let\MYoriglatexcaption\caption
+% \renewcommand{\caption}[2][\relax]{\MYoriglatexcaption[#2]{#2}}
+%\fi
+% endfloat.sty was written by James Darrell McCauley, Jeff Goldberg and
+% Axel Sommerfeldt. This package may be useful when used in conjunction with
+% IEEEtran.cls'  captionsoff option. Some IEEE journals/societies require that
+% submissions have lists of figures/tables at the end of the paper and that
+% figures/tables without any captions are placed on a page by themselves at
+% the end of the document. If needed, the draftcls IEEEtran class option or
+% \CLASSINPUTbaselinestretch interface can be used to increase the line
+% spacing as well. Be sure and use the nomarkers option of endfloat to
+% prevent endfloat from "marking" where the figures would have been placed
+% in the text. The two hack lines of code above are a slight modification of
+% that suggested by in the endfloat docs (section 8.4.1) to ensure that
+% the full captions always appear in the list of figures/tables - even if
+% the user used the short optional argument of \caption[]{}.
+% IEEE papers do not typically make use of \caption[]'s optional argument,
+% so this should not be an issue. A similar trick can be used to disable
+% captions of packages such as subfig.sty that lack options to turn off
+% the subcaptions:
+% For subfig.sty:
+% \let\MYorigsubfloat\subfloat
+% \renewcommand{\subfloat}[2][\relax]{\MYorigsubfloat[]{#2}}
+% However, the above trick will not work if both optional arguments of
+% the \subfloat command are used. Furthermore, there needs to be a
+% description of each subfigure *somewhere* and endfloat does not add
+% subfigure captions to its list of figures. Thus, the best approach is to
+% avoid the use of subfigure captions (many IEEE journals avoid them anyway)
+% and instead reference/explain all the subfigures within the main caption.
+% The latest version of endfloat.sty and its documentation can obtained at:
+% http://www.ctan.org/pkg/endfloat
+%
+% The IEEEtran \ifCLASSOPTIONcaptionsoff conditional can also be used
+% later in the document, say, to conditionally put the References on a
+% page by themselves.
+
+
+
+
+% *** PDF, URL AND HYPERLINK PACKAGES ***
+%
+%\usepackage{url}
+% url.sty was written by Donald Arseneau. It provides better support for
+% handling and breaking URLs. url.sty is already installed on most LaTeX
+% systems. The latest version and documentation can be obtained at:
+% http://www.ctan.org/pkg/url
+% Basically, \url{my_url_here}.
+
+
+
+
+% *** Do not adjust lengths that control margins, column widths, etc. ***
+% *** Do not use packages that alter fonts (such as pslatex).         ***
+% There should be no need to do such things with IEEEtran.cls V1.6 and later.
+% (Unless specifically asked to do so by the journal or conference you plan
+% to submit to, of course. )
+
+
+% correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+
+\begin{document}
+
+\pagenumbering{empty}
+
+
+%
+% paper title
+% Titles are generally capitalized except for words such as a, an, and, as,
+% at, but, by, for, in, nor, of, on, or, the, to and up, which are usually
+% not capitalized unless they are the first or last word of the title.
+% Linebreaks \\ can be used within to get better formatting as desired.
+% Do not put math or special symbols in the title.
+\title{Reinforcement Learning Control of MicroGrid Systems}
+
+
+% author names and affiliations
+% transmag papers use the long conference author name format.
+
+\author{\IEEEauthorblockN{Farooq Olanrewaju (g202404900)\IEEEauthorrefmark{1},
+Abubakar Abdulkarim (g202421140)\IEEEauthorrefmark{2}}
+\IEEEauthorblockA{\IEEEauthorrefmark{1}\textit{Control \& Instrumentation Eng. Dept.}, \textit{King Fahd Univ. of Petroleum \& Minerals}, Dhahran 31261, Saudi Arabia}
+\IEEEauthorblockA{\IEEEauthorrefmark{2}\textit{Electrical Eng. Dept.}, \textit{King Fahd Univ. of Petroleum \& Minerals}, Dhahran 31261, Saudi Arabia}
+% \IEEEauthorblockA{\IEEEauthorrefmark{2}\textit{IRC for Sustainable Energy Systems}, \textit{King Fahd Univ. of Petroleum \& Minerals}, Dhahran 31261, Saudi Arabia}% <-this % stops an unwanted space
+}
+
+
+
+% The paper headers
+% \markboth{Journal of \LaTeX\ Class Files,~Vol.~14, No.~8, August~2015}%
+% {Shell \MakeLowercase{\textit{et al.}}: Bare Demo of IEEEtran.cls for IEEE Transactions on Magnetics Journals}
+% The only time the second header will appear is for the odd numbered pages
+% after the title page when using the twoside option.
+%
+% *** Note that you probably will NOT want to include the author's ***
+% *** name in the headers of peer review papers.                   ***
+% You can use \ifCLASSOPTIONpeerreview for conditional compilation here if
+% you desire.
+
+
+
+
+% If you want to put a publisher's ID mark on the page you can do it like
+% this:
+%\IEEEpubid{0000--0000/00\$00.00~\copyright~2015 IEEE}
+% Remember, if you use this you must call \IEEEpubidadjcol in the second
+% column for its text to clear the IEEEpubid mark.
+
+
+
+% use for special paper notices
+%\IEEEspecialpapernotice{(Invited Paper)}
+
+
+% for Transactions on Magnetics papers, we must declare the abstract and
+% index terms PRIOR to the title within the \IEEEtitleabstractindextext
+% IEEEtran command as these need to go into the title area created by
+% \maketitle.
+% As a general rule, do not put math, special symbols or citations
+% in the abstract or keywords.
+
+\IEEEtitleabstractindextext{%
+\begin{abstract}
+\textit{ABSTRACT}---Microgrids combine renewable generation, dispatchable resources, energy storage, and local loads, and can operate either grid-connected or islanded. Rapid renewable intermittency, stochastic demand, and time-varying electricity prices make real-time energy management challenging for fixed-rule or strictly model-based controllers, particularly when reliability constraints must be respected. This paper proposes a reinforcement-learning (RL) energy management system (EMS) for a hybrid microgrid comprising photovoltaic and wind generation, battery storage, a dispatchable unit, and grid import/export. The control problem is cast as a continuous Markov decision process and implemented in an OpenAI Gym-compatible simulator driven by load and resource time-series (measured or synthetically generated). We benchmark a rule-based EMS against DRL agents trained with Proximal Policy Optimization (PPO), Twin Delayed Deep Deterministic Policy Gradient (TD3), and Soft Actor-Critic (SAC). Across the studied scenarios, unstructured (random) actions produce frequent power-balance violations and load shedding, whereas learned continuous-control policies improve supply adequacy and reduce unmet demand and renewable curtailment while coordinating storage and grid trading within operational limits. The study also highlights the sensitivity of learned performance to environment fidelity, motivating future extensions that explicitly model degradation and outage/repair processes for deployment-ready evaluation.
+\end{abstract}
+\begin{IEEEkeywords}
+Microgrid, energy management system, reinforcement learning, deep reinforcement learning, continuous control, PPO, TD3, SAC, grid trading, reliability.
+
+\end{IEEEkeywords}}
+% make the title area
+\maketitle
+
+
+% To allow for easy dual compilation without having to reenter the
+% abstract/keywords data, the \IEEEtitleabstractindextext text will
+% not be used in maketitle, but will appear (i.e., to be "transported")
+% here as \IEEEdisplaynontitleabstractindextext when the compsoc
+% or transmag modes are not selected <OR> if conference mode is selected
+% - because all conference papers position the abstract like regular
+% papers do.
+\IEEEdisplaynontitleabstractindextext
+% \IEEEdisplaynontitleabstractindextext has no effect when using
+% compsoc or transmag under a non-conference mode.
+
+
+
+
+
+
+
+% For peer review papers, you can put extra information on the cover
+% page as needed:
+% \ifCLASSOPTIONpeerreview
+% \begin{center} \bfseries EDICS Category: 3-BBND \end{center}
+% \fi
+%
+% For peerreview papers, this IEEEtran command inserts a page break and
+% creates the second title. It will be ignored for other modes.
+\IEEEpeerreviewmaketitle
+
+% Add spacing BEFORE \maketitle to align the two columns
+\vspace{2\baselineskip}
+\maketitle
+
+\section{Introduction}
+A microgrid is a controllable, localized portion of the distribution network that can operate connected to the main grid or in islanded mode \cite{Lasseter2002,Olivares2014}. Microgrids typically integrate renewable generation mostly photovoltaic (PV) and wind, dispatchable generation, energy storage, and diverse loads both residential and industrial as shown in Fig.\ref{fig:microgrid}. An energy management system (EMS) coordinates these assets to minimize operating cost while meeting reliability and power-quality requirements. However, increasing renewable penetration introduces fast variability and uncertainty; furthermore, component failures, grid outages, and time-varying electricity prices complicate optimal control and can degrade supply security if not handled explicitly \cite{Olivares2014}.
+
+Conventional EMS approaches include rule-based heuristics, dynamic programming, and model predictive control (MPC). These methods provide structured constraint handling, but typically require explicit models and forecasts; their performance may deteriorate under significant uncertainty, modeling mismatch, or rare-event contingencies. Motivated by the need for adaptive decision-making under uncertainty, recent work has explored reinforcement learning (RL) for microgrid energy management \cite{Kuznetsova2013}. In parallel, open-source simulators such as \texttt{pymgrid} have lowered the barrier for RL-oriented EMS research by standardizing environments and interfaces for training and evaluation \cite{Henri2020pymgrid}. Nevertheless, many published RL studies employ simplified discrete states/actions and often omit practical phenomena such as battery degradation, repair costs, and multi-load interactions, which can materially change optimal operating strategies and the realism of performance claims.
+
+This paper develops a continuous-control RL EMS that integrates local generation, storage, and grid trading to optimize cost-efficiency, reliability, and resilience under variable domestic and industrial loads. The EMS is formulated as a Markov decision process (MDP) with continuous observations and actions, enabling direct learning of practical setpoints using modern continuous-control DRL algorithms such as PPO, TD3, and SAC \cite{Schulman2017PPO,Fujimoto2018TD3,Haarnoja2018SAC}.
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{Images/mde.png}
+  \caption{Microgrid system overview}
+  \label{fig:microgrid}
+\end{figure}
+
+\subsection{Contributions}
+The main contributions are:
+\begin{itemize}
+    \item A continuous-control MDP formulation for hybrid microgrid EMS with renewables, storage, dispatchable generation, and grid trading.
+    \item A comparative analysis of modern DRL controllers (PPO/TD3/SAC) against rule-based baselines under variable residential and industrial demand.
+    \item Development of a Python-based microgrid simulation and Gym-style environment built around realistic PV, wind, battery, grid, and failure models.
+\end{itemize}
+
+\subsection{Paper organization}
+Section~II reviews related work on optimization/MPC-based EMS and RL-based EMS, including safety and benchmarking considerations. Section~III presents the microgrid model and MDP formulation. Section~IV describes the learning algorithms and experimental methodology. Section~V reports results and discussion. Section~VI concludes and outlines future work.
+
+\section{Literature review}
+Microgrid EMS research broadly spans (i) optimization- and MPC-based methods that use explicit models and forecasts, and (ii) learning-based methods, particularly RL/DRL, that learn policies from interaction. Across both categories, the core challenge is balancing economics and reliability under uncertainty while respecting device and network constraints \cite{Olivares2014}.
+
+\subsection{Optimization- and MPC-based EMS under uncertainty}
+Optimization-based EMS methods (deterministic, stochastic, or robust) are attractive because they encode constraints directly and can incorporate tariffs, reserves, and operational priorities. MPC extends this framework by repeatedly solving a constrained optimization problem over a receding horizon, enabling feedback through re-optimization as forecasts update. However, MPC performance depends strongly on model fidelity and forecast quality, and it can be stressed by high renewable variability, heterogeneous loads, and contingencies such as islanding and component failures. Moreover, multi-timescale operation like day-ahead planning plus real-time correction raises coordination questions; approaches that couple operational planning and real-time optimization via value-function or cost-to-go ideas attempt to address this gap by embedding longer-horizon consequences into real-time decisions \cite{Dumas2021}. These limitations motivate adaptive strategies that can react effectively even when explicit models are imperfect.
+
+\subsection{RL/DRL for microgrid energy management}
+RL formulates EMS as sequential decision-making, learning a policy that maps states  to actions to maximize long-term return. Early work showed that RL can handle stochastic renewables and demand and can learn effective EMS policies without an explicit transition model \cite{Kuznetsova2013}. As EMS models grow in dimensionality and nonlinearity, DRL becomes important; empirical studies comparing DRL algorithms for microgrid EMS with flexible demand report that algorithm choice and training stability significantly affect convergence and operational performance \cite{Nakabi2021}. Even with this promising results, many EMS-RL studies simplify action spaces like discrete charge/discharge modes and omit important operational mechanisms such as outages/repairs and degradation, which can inflate performance estimates and reduce transferability.
+
+\subsection{Continuous-control DRL and actor--critic methods}
+Practical EMS decisions are often continuous (battery power, grid import/export, dispatchable generation). Continuous-control DRL is therefore a natural fit, avoiding coarse discretization that can reduce optimality and induce switching behavior near constraints. Modern actor--critic methods are widely used in continuous control: PPO stabilizes policy-gradient updates using clipped objectives \cite{Schulman2017PPO}, TD3 reduces overestimation bias using twin critics and delayed updates \cite{Fujimoto2018TD3}, and SAC optimizes a maximum-entropy objective to encourage exploration and improve robustness \cite{Haarnoja2018SAC}. For EMS, these properties are relevant because the environment is non-stationary and may include rare but consequential events such as grid outages.
+
+\subsection{Safety, constraints, and feasibility in EMS-RL}
+EMS operation is safety-critical: actions must respect SOC bounds, power limits, and import/export capacities while maintaining supply to critical loads. Standard RL exploration does not guarantee constraint satisfaction, motivating safe and constrained RL. Survey work categorizes safe RL methods into approaches that modify the optimality criterion like risk-sensitive or constrained objectives and those that incorporate external knowledge such as shielding, action projection, or safety filters\cite{Garcia2015}. CMDP-based methods provide a principled framework by treating constraint violations as separate cost signals; constrained policy optimization is a representative approach that updates policies while enforcing constraints under trust-region style bounds \cite{Achiam2017CPO}. In practice, EMS-RL studies often combine DRL with engineering safeguards to ensure physical feasibility during training and deployment.
+
+\subsection{Battery degradation and lifecycle-aware EMS}
+Battery storage is central to microgrid flexibility, but cycling accelerates degradation and changes the true economic optimum. Many EMS-RL studies treat storage as an ideal buffer with fixed capacity, which can overstate savings and lead to unrealistic dispatch patterns. Battery aging mechanisms and their dependence on operating conditions are well documented \cite{Vetter2005}, motivating degradation-aware EMS that includes lifecycle costs or proxy penalties,  throughput- or SOC-swing-based terms in the objective. From an RL point, adding degradation costs changes the reward landscape and can shift learned policies toward gentler cycling; however, the lack of standardized degradation models and evaluation protocols remains a key barrier to cross-paper comparability.
+
+\subsection{Benchmarking and open simulation environments}
+Because EMS-RL outcomes depend heavily on environment design and evaluation protocol, benchmarking and reproducibility are recurring concerns. Open-source environments support more credible comparisons by standardizing interfaces and scenarios. \texttt{pymgrid} provides an RL-oriented microgrid simulator aimed at tertiary EMS research \cite{Henri2020pymgrid}, while OpenModelica Microgrid Gym offers a Gym-compatible environment for microgrid control experimentation \cite{Heid2020OMG}. Despite these advances, unified benchmarks that simultaneously capture continuous-control EMS setpoints, explicit outage/repair processes, degradation-aware storage modeling, and multi-load reliability metrics remain limited.
+
+
+% NOTE: Replace citation keys (e.g., Ridha2021, Spertino2012, Semaoui2013)
+% with the exact keys used in your myrefs.bib file.
+
+\section{Methodology}
+This section presents the component-level mathematical models used to simulate the microgrid dynamics and defines the learning-based energy management strategy. The overall goal is to obtain a tractable yet physically meaningful environment where an RL agent can learn continuous setpoints for storage and grid exchange while respecting operational limits and reliability objectives.
+
+\subsection{Mathematical Models}
+We model the microgrid as a discrete-time system with time step $\Delta t$. At each step, renewable generation and loads are treated as exogenous inputs (measured or time-series driven), while the controllable assets (battery and grid exchange) are actuated by the EMS.
+
+\subsubsection{Photovoltaic (PV) Model}
+The PV generation is computed using a commonly adopted irradiance--temperature performance model \cite{Ridha2021,Spertino2012}. The PV power output is given by
+\begin{equation}
+    P = P_r \mu \frac{G}{G_{ref}}\left[1 + \gamma\left(T_{cell} - T_a\right)\right]
+\end{equation}
+where $P$ is the PV power output (kW), $P_r$ is the rated PV power (kW), $\mu$ is a derating factor accounting for aggregate non-idealities (e.g., soiling, wiring losses, mismatch, and inverter losses), $G$ is solar irradiance, and $G_{ref}$ is the PV reference irradiance (typically standard test conditions). The bracketed term captures the first-order sensitivity of PV output to temperature: $\gamma$ is the temperature coefficient, $T_{cell}$ is the PV cell temperature, and $T_a$ is the ambient temperature. This model provides a lightweight but effective mapping from weather inputs to available PV power, making it suitable for control-oriented simulation and RL training where many rollouts are required \cite{Ridha2021,Spertino2012}.
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/components/synthetic_pv_vs_power.png}
+    \caption{}
+    \label{fig:comp-synth-pv}
+\end{figure}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/components/mesa_pv_power.png}
+    \caption{}
+    \label{fig:comp-mesa-pv}
+\end{figure}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/components/liege_pv_power.png}
+    \caption{}
+    \label{fig:comp-liege-pv}
+\end{figure}
+
+
+
+\subsubsection{Wind Turbine Model}
+Wind generation is modeled using a piecewise power curve parameterized by cut-in, rated, and cut-out wind speeds \cite{Kuznetsova2013}. The wind turbine output is defined as
+\begin{equation}
+    P = \begin{cases}
+    0 & \text{if } v < v_{ci} \\
+    P_r \frac{v - v_{ci}}{v_r - v_{ci}} \Delta t & \text{if } v_{ci} \leq v < v_r \\
+    P_r \Delta t & \text{if } v_r \leq v < v_{co} \\
+    0 & \text{if } v > v_{co}
+    \end{cases}
+\end{equation}
+where $v$ is the current wind speed (m/s), $v_{ci}$, $v_r$, and $v_{co}$ are the cut-in, rated, and cut-out speeds (m/s), $P_r$ is the rated wind turbine power (kW), and $\Delta t$ is the time interval (s). The piecewise structure captures the physical operating regimes: no production at low wind speeds, a ramp-up region as aerodynamic power increases, a rated plateau due to generator/controls saturation, and shutdown at extreme winds for protection \cite{Kuznetsova2013}. In our simulator, this model provides the available wind contribution to the instantaneous power balance at each step.
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/components/synthetic_wind_vs_power.png}
+    \caption{}
+    \label{fig:comp-synth-wind}
+\end{figure}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/components/liege_wind_speed.png}
+    \caption{}
+    \label{fig:comp-liege-wind}
+\end{figure}
+
+\subsubsection{Battery Model}
+Battery dynamics are represented through the state of charge (SOC) and a simplified capacity aging model \cite{Semaoui2013}. The SOC is defined as:
+
+\begin{equation}
+    SOC(t) = \frac{C_s(t)}{C_n(t)}
+\end{equation}
+
+where $C_s(t)$ is the current stored charge (C) and $C_n(t)$ is the nominal charge storage capacity (C). The SOC update under charging and discharging is modeled as
+\begin{equation}
+    SOC(t + 1) = SOC(t) + \mu_c \frac{P \Delta t}{C_s}
+    \quad \text{(Charging)}
+\end{equation}
+\begin{equation}
+    SOC(t + 1) = SOC(t) - \mu_d \frac{P \Delta t}{C_s}
+    \quad \text{(Discharging)}
+\end{equation}
+where $P$ is the battery power (kW) applied during $\Delta t$ and $\mu_c$ and $\mu_d$ are charging/discharging coefficients that represent conversion losses. Operationally, $SOC(t)$ is constrained to remain within allowable limits (e.g., $SOC_{\min}$ and $SOC_{\max}$), and power setpoints are saturated to respect charge/discharge limits.
+
+To reflect long-term performance degradation, the nominal capacity is updated using a throughput/SOC-swing degradation proxy \cite{Semaoui2013}:
+\begin{equation}
+    C_n(t) = C_n(t - 1) - C_n(0)\,\varphi\,[SOC(t - 1) - SOC(t)]
+\end{equation}
+where $\varphi$ is the aging coefficient. Although simplified compared to electrochemical aging models, this formulation introduces an explicit coupling between cycling behavior and usable capacity, enabling evaluation of control policies under non-ideal storage evolution \cite{Semaoui2013}.
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/components/synthetic_battery_test.png}
+    \caption{}
+    \label{fig:comp-synth-batt}
+\end{figure}
+
+\subsubsection{Grid Model and Power Balance}
+At each time step, the microgrid enforces power balance between supply and demand. We define aggregate generated and consumed power as
+\begin{equation}
+    \sum P_{gen} = \sum P_{PV} + P_W + P_{BC} + P_{GS}
+\end{equation}
+\begin{equation}
+    \sum P_{con} = \sum P_F + P_R + P_{BD} + P_{GB}
+\end{equation}
+and the net power as
+\begin{equation}
+    P_{net} = \sum P_{gen} - \sum P_{con}.
+\end{equation}
+Here, $P_{PV}$ and $P_W$ are the PV and wind contributions, $P_R$ and $P_F$ denote residential and factory loads, $P_{BC}$ and $P_{BD}$ are battery charge/discharge powers, and $P_{GS}$ and $P_{GB}$ represent grid export (sell) and import (buy), respectively. The sign conventions are chosen such that $P_{net} \ge 0$ indicates a surplus (exporting is possible), while $P_{net} < 0$ indicates a deficit (importing is required).
+
+The grid is treated as a slack bus with finite import/export capacities. When surplus power exists, export is limited by $P_{GI}$ (maximum grid injection). If $P_{net}$ exceeds this limit, excess generation must be curtailed:
+\begin{equation}
+    P_{curt} = P_{net} - P_{GI}
+    \quad \text{if } P_{net} > P_{GI}.
+\end{equation}
+When a deficit exists, import is limited by $P_{GE}$ (maximum grid extraction). If the deficit exceeds the import capability, unmet demand occurs:
+\begin{equation}
+    P_{unmet} = P_{GE} - P_{net}
+    \quad \text{if } P_{net} < P_{GE}.
+\end{equation}
+The resulting quantities $P_{curt}$ and $P_{unmet}$ are key reliability/efficiency indicators and are explicitly penalized in the RL reward design.
+
+\subsection{Failure Modelling}
+To evaluate controller robustness under disturbances and rare events, we employ a time-varying failure rate model. The failure parameter $\theta$ is modulated by external conditions as
+\begin{equation}
+    \theta = \theta_{base}\left[1 + \omega \max\!\left(0,\, \theta_{ext} - \theta_{thresh}\right)\right]
+\end{equation}
+where $\theta_{base}$ is the baseline failure rate, $\theta_{ext}$ is an external stress indicator, $\theta_{thresh}$ is a threshold above which external stress increases failure propensity, and $\omega$ controls sensitivity to externally induced failure.
+
+Assuming a Poisson failure process, the probability of failure occurrence during an interval $\Delta t$ is
+\begin{equation}
+    P = 1 - e^{-\theta \Delta t}.
+\end{equation}
+Following a failure event, the time-to-recover $T$ is modeled as exponentially distributed with mean $MTTR$:
+\begin{equation}
+    T \sim \mathrm{Exp}(\lambda), \quad \lambda = \frac{1}{MTTR}.
+\end{equation}
+This yields a parsimonious outage/repair mechanism that can be integrated into simulation rollouts to stress-test learned policies under reduced availability or islanded-like conditions.
+
+\subsection{Reinforcement Learning Controller}
+The EMS is formulated as a Markov decision process (MDP) in which the agent observes a state $s_t$ and selects an action $a_t$ at each time step to maximize expected discounted return. The state vector aggregates information required for real-time decisions, including (but not limited to) load levels ($P_R$, $P_F$), renewable availability ($P_{PV}$, $P_W$ or their exogenous drivers), battery SOC and operational limits, and grid exchange limits. The action space is continuous and corresponds to real-valued setpoints for controllable power flows (e.g., battery charge/discharge command and/or grid import/export scheduling subject to saturation and SOC feasibility).
+
+We implement the RL controller using the Stable-Baselines3 toolbox with actor--critic function approximation and a \texttt{MultiInputPolicy} to accommodate multi-field observations. We evaluate multiple widely used DRL algorithms---PPO, A2C, TD3, and SAC---using their standard library implementations \cite{Schulman2017PPO, Fujimoto2018TD3, Haarnoja2018SAC}. For each method, separate neural networks are learned for the policy (actor) and value estimation (critic), and action outputs are clipped/projection-filtered to ensure physical feasibility (SOC bounds, power limits, and grid exchange constraints). Training is performed by rolling out the simulator over representative time-series scenarios and updating the policy to improve long-horizon performance.
+
+\subsection{Reward Function}
+The reward at each time step is designed to encode economic operation while strongly discouraging reliability violations and renewable wastage. The implemented reward is a weighted combination of four terms:
+\begin{equation}
+    r_t
+    = w_{\text{cost}}\,c_t
+    - w_{\text{unmet}}\,u_t
+    - w_{\text{curt}}\,x_t
+    - w_{\text{soc}}\,d_t
+\end{equation}
+where $c_t$ is the step-wise economic term (computed from energy purchasing/selling and any operational costs in the simulator), $u_t$ is unmet demand (e.g., $P_{unmet}$), $x_t$ is curtailed energy/power (e.g., $P_{curt}$), and $d_t$ is an optional SOC deviation penalty.
+
+In our implementation, the weights are
+\begin{align}
+    \begin{split}
+        w_{\text{cost}} &= 5.0 \\
+        w_{\text{unmet}} &= 10.0 \times 3.5 = 35.0 \\
+        w_{\text{curt}} &= 0.1 \times 1.5 = 0.15 \\
+        w_{\text{soc}} &= 0.0.
+    \end{split}
+\end{align}
+This choice places the highest priority on reliability (large penalty on unmet demand), followed by economic performance, with a smaller but nonzero penalty on renewable curtailment. The SOC deviation term is disabled in the present experiments ($w_{\text{soc}}=0$), but it can be activated in future work to encourage SOC regularization (e.g., to reduce deep cycling or maintain reserve capacity).
+
+\section{Results}
+
+\subsection{Rule-Based Control with Synthetic Data}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rule-based/sunny.png}
+    \caption{}
+    \label{fig:result-rb-sunny}
+\end{figure}
+
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rule-based/islanded.png}
+    \caption{}
+    \label{fig:result-rb-islanded}
+\end{figure}
+
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rule-based/scheduled_buy.png}
+    \caption{}
+    \label{fig:result-rb-scheduled-buy}
+\end{figure}
+
+\subsection{Rule-Based Control with Real Datasets}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rule-based-data-driven/mesa-overview.png}
+    \caption{}
+    \label{fig:result-rb-mesa}
+\end{figure}
+
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rule-based-data-driven/liege-overview.png}
+    \caption{}
+    \label{fig:result-rb-liege}
+\end{figure}
+
+
+\subsection{RL Control}
+
+\subsection{PPO}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rl-based/ppo_reward_progress.png}
+    \caption{}
+    \label{fig:result-rl-ppo-reward}
+\end{figure}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rl-based/PPO/overview.png}
+    \caption{}
+    \label{fig:result-rl-ppo-result}
+\end{figure}
+
+
+\subsection{A2C}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rl-based/a2c_reward_progress.png}
+    \caption{}
+    \label{fig:result-rl-a2c-reward}
+\end{figure}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rl-based/A2C/overview.png}
+    \caption{}
+    \label{fig:result-rl-a2c-result}
+\end{figure}
+
+
+\subsection{SAC}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rl-based/sac_reward_progress.png}
+    \caption{}
+    \label{fig:result-rl-sac-reward}
+\end{figure}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rl-based/SAC/overview.png}
+    \caption{}
+    \label{fig:result-rl-sac-result}
+\end{figure}
+
+
+\subsection{TD3}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rl-based/td3_reward_progress.png}
+    \caption{}
+    \label{fig:result-rl-td3-reward}
+\end{figure}
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{Images/rl-based/TD3/overview.png}
+    \caption{}
+    \label{fig:result-rl-td3-result}
+\end{figure}
+
+
+% An example of a floating figure using the graphicx package.
+% Note that \label must occur AFTER (or within) \caption.
+% For figures, \caption should occur after the \includegraphics.
+% Note that IEEEtran v1.7 and later has special internal code that
+% is designed to preserve the operation of \label within \caption
+% even when the captionsoff option is in effect. However, because
+% of issues like this, it may be the safest practice to put all your
+% \label just after \caption rather than within \caption{}.
+%
+% Reminder: the "draftcls" or "draftclsnofoot", not "draft", class
+% option should be used if it is desired that the figures are to be
+% displayed while in draft mode.
+%
+%\begin{figure}[!t]
+%\centering
+%\includegraphics[width=2.5in]{myfigure}
+% where an .eps filename suffix will be assumed under latex,
+% and a .pdf suffix will be assumed for pdflatex; or what has been declared
+% via \DeclareGraphicsExtensions.
+%\caption{Simulation results for the network.}
+%\label{fig_sim}
+%\end{figure}
+
+% Note that the IEEE typically puts floats only at the top, even when this
+% results in a large percentage of a column being occupied by floats.
+
+
+% An example of a double column floating figure using two subfigures.
+% (The subfig.sty package must be loaded for this to work.)
+% The subfigure \label commands are set within each subfloat command,
+% and the \label for the overall figure must come after \caption.
+% \hfil is used as a separator to get equal spacing.
+% Watch out that the combined width of all the subfigures on a
+% line do not exceed the text width or a line break will occur.
+%
+%\begin{figure*}[!t]
+%\centering
+%\subfloat[Case I]{\includegraphics[width=2.5in]{box}%
+%\label{fig_first_case}}
+%\hfil
+%\subfloat[Case II]{\includegraphics[width=2.5in]{box}%
+%\label{fig_second_case}}
+%\caption{Simulation results for the network.}
+%\label{fig_sim}
+%\end{figure*}
+%
+% Note that often IEEE papers with subfigures do not employ subfigure
+% captions (using the optional argument to \subfloat[]), but instead will
+% reference/describe all of them (a), (b), etc., within the main caption.
+% Be aware that for subfig.sty to generate the (a), (b), etc., subfigure
+% labels, the optional argument to \subfloat must be present. If a
+% subcaption is not desired, just leave its contents blank,
+% e.g., \subfloat[].
+
+
+% An example of a floating table. Note that, for IEEE style tables, the
+% \caption command should come BEFORE the table and, given that table
+% captions serve much like titles, are usually capitalized except for words
+% such as a, an, and, as, at, but, by, for, in, nor, of, on, or, the, to
+% and up, which are usually not capitalized unless they are the first or
+% last word of the caption. Table text will default to \footnotesize as
+% the IEEE normally uses this smaller font for tables.
+% The \label must come after \caption as always.
+%
+%\begin{table}[!t]
+%% increase table row spacing, adjust to taste
+%\renewcommand{\arraystretch}{1.3}
+% if using array.sty, it might be a good idea to tweak the value of
+% \extrarowheight as needed to properly center the text within the cells
+%\caption{An Example of a Table}
+%\label{table_example}
+%\centering
+%% Some packages, such as MDW tools, offer better commands for making tables
+%% than the plain LaTeX2e tabular which is used here.
+%\begin{tabular}{|c||c|}
+%\hline
+%One & Two\\
+%\hline
+%Three & Four\\
+%\hline
+%\end{tabular}
+%\end{table}
+
+
+% Note that the IEEE does not put floats in the very first column
+% - or typically anywhere on the first page for that matter. Also,
+% in-text middle ("here") positioning is typically not used, but it
+% is allowed and encouraged for Computer Society conferences (but
+% not Computer Society journals). Most IEEE journals/conferences use
+% top floats exclusively.
+% Note that, LaTeX2e, unlike IEEE journals/conferences, places
+% footnotes above bottom floats. This can be corrected via the
+% \fnbelowfloat command of the stfloats package.
+
+
+
+
+\section{Conclusion and Future Work}
+This paper presented a continuous control RL EMS for a hybrid microgrid integrating photovoltaic and wind generation, battery energy storage, a dispatchable generator, and grid import/export. The EMS problem was formulated as a continuous Markov decision process and implemented in an OpenAI Gym-compatible simulation environment that enforces operational constraints like state-of-charge bounds, charge/discharge limits, and grid trading limits while capturing time-varying renewable availability and heterogeneous residential and industrial demand. Using a rule-based controller as a baseline, we evaluated modern continuous-control DRL algorithms PPO, TD3, and SAC to quantify their capability to learn coordinated storage dispatch and grid-trading actions.
+
+The results demonstrate that random actions policies produce frequent power-balance violations, unmet load events, and unstable operation, underscoring the difficulty of microgrid EMS under uncertainty. In contrast, trained RL policies improve supply adequacy and sustain power balance more consistently in the studied scenarios by learning to allocate renewable generation, storage charging/discharging, and grid import/export in a coordinated manner. The comparative analysis also indicates that algorithm choice influences policy smoothness and operational trade-offs, and that observed performance is sensitive to environment assumptions, reward shaping, and the fidelity of component models. These findings support the feasibility of continuous control RL for microgrid EMS while highlighting the need for careful benchmarking and realism to ensure deployment relevance.
+
+Future work will focus on increasing modeling fidelity and strengthening evaluation rigor. First, we will incorporate richer contingency modeling, including component-specific failure modes, external-stress dependent outage rates, repair costs, and stochastic repair-time distributions, enabling resilience oriented training and assessment. Second, we will integrate degradation-aware storage models that capture cycle aging and calendar aging effects, allowing the EMS to explicitly optimize lifecycle cost rather than short-term energy arbitrage alone. Third, we will tighten coupling between the EMS layer and lower-level microgrid dynamics by interfacing with voltage/frequency control and converter constraints, enabling evaluation of how EMS decisions interact with stability margins during both grid-connected and islanded transitions.
+
+\section{Data and Code Availability}
+All source code, simulation environments, and supporting materials for this work are publicly available in the GitHub repository titled \href{https://github.com/olanrewajufarooq/microgrid-control-sim}{microgrid-control-sim}\footnote{Link: https://github.com/olanrewajufarooq/microgrid-control-sim}. The repository includes a simple \texttt{README} file with instructions, enabling full reproduction of the experimental results and facilitating adaptation for future research projects.
+
+% if have a single appendix:
+%\appendix[Proof of the Zonklar Equations]
+% or
+%\appendix  % for no appendix heading
+% do not use \section anymore after \appendix, only \section*
+% is possibly needed
+
+% use appendices with more than one appendix
+% then use \section to start each appendix
+% you must declare a \section before using any
+% \subsection or using \label (\appendices by itself
+% starts a section numbered zero.)
+%
+
+
+% \appendices
+% \section{Proof of the First Zonklar Equation}
+% Appendix one text goes here.
+
+% you can choose not to have a title for an appendix
+% if you want by leaving the argument blank
+% \section{}
+% Appendix two text goes here.
+
+
+% use section* for acknowledgment
+% \section*{Acknowledgment}
+
+
+% The authors would like to thank...
+
+
+% Can use something like this to put references on a page
+% by themselves when using endfloat and the captionsoff option.
+\ifCLASSOPTIONcaptionsoff
+  \newpage
+\fi
+
+
+
+% trigger a \newpage just before the given reference
+% number - used to balance the columns on the last page
+% adjust value as needed - may need to be readjusted if
+% the document is modified later
+%\IEEEtriggeratref{8}
+% The "triggered" command can be changed if desired:
+%\IEEEtriggercmd{\enlargethispage{-5in}}
+
+% references section
+
+% can use a bibliography generated by BibTeX as a .bbl file
+% BibTeX documentation can be easily obtained at:
+% http://mirror.ctan.org/biblio/bibtex/contrib/doc/
+% The IEEEtran BibTeX style support page is at:
+% http://www.michaelshell.org/tex/ieeetran/bibtex/
+\bibliographystyle{IEEEtran}
+
+% argument is your BibTeX string definitions and bibliography database(s)
+% \bibliography{IEEEabrv,../myrefs.bbl}
+\bibliography{myrefs}
+%
+% <OR> manually copy in the resultant .bbl file
+% set second argument of \begin to the number of references
+% (used to reserve space for the reference number labels box)
+% \begin{thebibliography}{1}
+
+% \bibitem{IEEEhowto:kopka}
+% H.~Kopka and P.~W. Daly, \emph{A Guide to \LaTeX}, 3rd~ed.\hskip 1em plus
+%   0.5em minus 0.4em\relax Harlow, England: Addison-Wesley, 1999.
+
+% \end{thebibliography}
+
+% biography section
+%
+% If you have an EPS/PDF photo (graphicx package needed) extra braces are
+% needed around the contents of the optional argument to biography to prevent
+% the LaTeX parser from getting confused when it sees the complicated
+% \includegraphics command within an optional argument. (You could create
+% your own custom macro containing the \includegraphics command to make things
+% simpler here.)
+%\begin{IEEEbiography}[{\includegraphics[width=1in,height=1.25in,clip,keepaspectratio]{mshell}}]{Michael Shell}
+% or if you just want to reserve a space for a photo:
+
+% \begin{IEEEbiography}{Michael Shell}
+% Biography text here.
+% \end{IEEEbiography}
+
+% if you will not have a photo at all:
+% \begin{IEEEbiographynophoto}{John Doe}
+% Biography text here.
+% \end{IEEEbiographynophoto}
+
+% insert where needed to balance the two columns on the last page with
+% biographies
+%\newpage
+
+% \begin{IEEEbiographynophoto}{Jane Doe}
+% Biography text here.
+% \end{IEEEbiographynophoto}
+
+% You can push biographies down or up by placing
+% a \vfill before or after them. The appropriate
+% use of \vfill depends on what kind of text is
+% on the last page and whether or not the columns
+% are being equalized.
+
+%\vfill
+
+% Can be used to pull up biographies so that the bottom of the last one
+% is flush with the other column.
+%\enlargethispage{-5in}
+
+
+
+% that's all folks
+
+\end{document}
+
+
